@@ -1,57 +1,137 @@
-// controllers/authController.js
-import User from "../models/User.js";
-import bcrypt from "bcryptjs";
-import { setOtp, getOtp, deleteOtp } from "../utils/otpStore.js";
+import User from '../models/user.js';
+import bcrypt from 'bcrypt';
+import jwt from 'jsonwebtoken';
 
-// Use your SMS API here
-const sendOtpToPhone = async (phone, otp) => {
-  // e.g., using Twilio or a dummy service
-  console.log(`Sending OTP ${otp} to phone ${phone}`);
-};
-
-export const registerStepOne = async (req, res) => {
-  const { email, username, password, preferredLanguage } = req.body;
-
+// Signup controller
+export const signup = async (req, res) => {
   try {
-    const existingUser = await User.findOne({ email });
-    if (existingUser) return res.status(400).json({ message: "Email already exists" });
-
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    // Temporarily store user data in frontend or use sessions/cache
-    res.status(200).json({
-      message: "Step 1 successful. Proceed to phone verification.",
-      tempUser: { email, username, password: hashedPassword, preferredLanguage }
+    const { username, email, password, preferredLanguage, phone } = req.body;
+    
+    // Check if user already exists with the email
+    const existingUserEmail = await User.findOne({ email });
+    if (existingUserEmail) {
+      return res.status(400).json({ message: "User already exists with this email" });
+    }
+    
+    // Check if username already exists
+    const existingUsername = await User.findOne({ username });
+    if (existingUsername) {
+      return res.status(400).json({ message: "Username already taken. Please choose a different username." });
+    }
+    
+    // Hash password
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
+    
+    // Create new user
+    const newUser = new User({
+      username,
+      email,
+      password: hashedPassword,
+      preferredLanguage,
+      phone,
+      isVerified: true
     });
-  } catch (err) {
-    res.status(500).json({ message: "Server error", error: err.message });
+    
+    // Save user to database
+    await newUser.save();
+    
+    // Generate JWT token
+    const token = jwt.sign(
+      { userId: newUser._id, email: newUser.email },
+      process.env.JWT_SECRET || 'your-default-secret-key',
+      { expiresIn: '24h' }
+    );
+    
+    res.status(201).json({
+      message: "User created successfully",
+      token,
+      user: {
+        id: newUser._id,
+        username: newUser.username,
+        email: newUser.email,
+        preferredLanguage: newUser.preferredLanguage
+      }
+    });
+  } catch (error) {
+    console.error("Signup error:", error);
+    
+    // Handle MongoDB duplicate key errors explicitly
+    if (error.code === 11000) {
+      const field = Object.keys(error.keyPattern)[0];
+      const value = error.keyValue[field];
+      
+      if (field === 'username') {
+        return res.status(400).json({ message: `Username "${value}" is already taken` });
+      } else if (field === 'email') {
+        return res.status(400).json({ message: `Email "${value}" is already registered` });
+      } else {
+        return res.status(400).json({ message: `${field} "${value}" already exists` });
+      }
+    }
+    
+    res.status(500).json({ message: "Server error during signup", error: error.message });
   }
 };
 
-export const sendOtp = async (req, res) => {
-  const { phone } = req.body;
-  const otp = Math.floor(100000 + Math.random() * 900000).toString();
-
-  setOtp(phone, otp);
-  await sendOtpToPhone(phone, otp);
-
-  res.status(200).json({ message: "OTP sent" });
-};
-
-export const verifyOtpAndRegister = async (req, res) => {
-  const { email, username, password, preferredLanguage, phone, otp } = req.body;
-
-  const storedOtp = getOtp(phone);
-  if (!storedOtp || storedOtp !== otp) {
-    return res.status(400).json({ message: "Invalid or expired OTP" });
-  }
-
+// Login controller
+export const login = async (req, res) => {
   try {
-    const user = new User({ email, username, password, preferredLanguage, phone, isVerified: true });
-    await user.save();
-    deleteOtp(phone);
-    res.status(201).json({ message: "User registered successfully" });
-  } catch (err) {
-    res.status(500).json({ message: "Signup failed", error: err.message });
+    const { email, password } = req.body;
+    
+    // Find user by email
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+    
+    // Check if password is correct
+    const isPasswordValid = await bcrypt.compare(password, user.password);
+    if (!isPasswordValid) {
+      return res.status(401).json({ message: "Invalid credentials" });
+    }
+    
+    // Check if user is verified
+    if (!user.isVerified) {
+      return res.status(403).json({ message: "Account not verified" });
+    }
+    
+    // Generate JWT token
+    const token = jwt.sign(
+      { userId: user._id, email: user.email },
+      process.env.JWT_SECRET || 'your-default-secret-key',
+      { expiresIn: '24h' }
+    );
+    
+    res.status(200).json({
+      message: "Login successful",
+      token,
+      user: {
+        id: user._id,
+        username: user.username,
+        email: user.email,
+        preferredLanguage: user.preferredLanguage
+      }
+    });
+  } catch (error) {
+    console.error("Login error:", error);
+    res.status(500).json({ message: "Server error during login", error: error.message });
+  }
+};
+
+// Get user profile
+export const getProfile = async (req, res) => {
+  try {
+    const userId = req.userData.userId;
+    
+    const user = await User.findById(userId).select('-password');
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+    
+    res.status(200).json({ user });
+  } catch (error) {
+    console.error("Get profile error:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
   }
 };

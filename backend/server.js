@@ -10,9 +10,9 @@ dotenv.config();
 const app = express();
 app.use(express.json());
 app.use(cors());
-connectDB();
+// connectDB();
 // Routes
-app.use("/auth", authRoutes);
+app.use("/api/auth", authRoutes);
 
 // Connect to DB and start server
 const PORT = process.env.PORT || 5000;
