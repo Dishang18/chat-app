@@ -13,6 +13,7 @@ const userSchema = new mongoose.Schema({
   preferredLanguage: { type: String, required: true }, // e.g., 'en', 'hi'
   phone: { type: String, required: true },
   isVerified: { type: Boolean, default: true }, // default true for simple signup
+  online: { type: Boolean, default: false }, // <-- Add this line
 });
 
 export default mongoose.model("User", userSchema);
