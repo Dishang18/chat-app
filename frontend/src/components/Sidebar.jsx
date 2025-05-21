@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 
-const Sidebar = ({ users, user, onLogout, sidebarOpen, setSidebarOpen }) => {
+const Sidebar = ({ users, user, onLogout, sidebarOpen, setSidebarOpen, onUserClick }) => {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [search, setSearch] = useState('');
 
@@ -46,8 +46,12 @@ const Sidebar = ({ users, user, onLogout, sidebarOpen, setSidebarOpen }) => {
             )}
             {filteredUsers.map((u) => (
               <li
-                key={u.id}
+                key={u._id || u.id}
                 className="flex items-center px-6 py-3 hover:bg-gray-800 cursor-pointer transition"
+                onClick={() => {
+                  if (onUserClick) onUserClick(u);
+                  setSidebarOpen(false);
+                }}
               >
                 <span
                   className={`h-3 w-3 rounded-full mr-3 ${
