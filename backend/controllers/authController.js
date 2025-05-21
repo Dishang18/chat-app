@@ -1,6 +1,12 @@
 import User from '../models/user.js';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
+import redisService from '../services/redisService.js'; // Import Redis service
+
+// Session expiration time (in seconds)
+const SESSION_EXPIRATION = 24 * 60 * 60; // 24 hours
+const TOKEN_PREFIX = 'token:';
+const SESSION_PREFIX = 'session:';
 
 // Signup controller
 export const signup = async (req, res) => {
@@ -42,6 +48,22 @@ export const signup = async (req, res) => {
       process.env.JWT_SECRET || 'your-default-secret-key',
       { expiresIn: '24h' }
     );
+    
+    // Store token in Redis for validation
+    await redisService.setValue(`${TOKEN_PREFIX}${token}`, {
+      userId: newUser._id.toString(),
+      email: newUser.email,
+      valid: true,
+    }, SESSION_EXPIRATION);
+    
+    // Store user session data in Redis
+    await redisService.setValue(`${SESSION_PREFIX}${newUser._id.toString()}`, {
+      userId: newUser._id.toString(),
+      username: newUser.username,
+      email: newUser.email,
+      preferredLanguage: newUser.preferredLanguage,
+      lastLogin: new Date().toISOString(),
+    }, SESSION_EXPIRATION);
     
     res.status(201).json({
       message: "User created successfully",
@@ -103,6 +125,31 @@ export const login = async (req, res) => {
       { expiresIn: '24h' }
     );
     
+    // Store token in Redis for validation
+    await redisService.setValue(`${TOKEN_PREFIX}${token}`, {
+      userId: user._id.toString(),
+      email: user.email,
+      valid: true,
+    }, SESSION_EXPIRATION);
+    
+    // Store or update user session in Redis
+    await redisService.setValue(`${SESSION_PREFIX}${user._id.toString()}`, {
+      userId: user._id.toString(),
+      username: user.username,
+      email: user.email,
+      preferredLanguage: user.preferredLanguage,
+      lastLogin: new Date().toISOString(),
+    }, SESSION_EXPIRATION);
+    
+    // Record login activity 
+    await redisService.client.lPush(`user:${user._id}:logins`, JSON.stringify({
+      timestamp: new Date().toISOString(),
+      ip: req.ip || 'unknown',
+      userAgent: req.headers['user-agent'] || 'unknown',
+    }));
+    // Keep only last 10 logins
+    await redisService.client.lTrim(`user:${user._id}:logins`, 0, 9);
+    
     res.status(200).json({
       message: "Login successful",
       token,
@@ -119,19 +166,32 @@ export const login = async (req, res) => {
   }
 };
 
-// Get user profile
-export const getProfile = async (req, res) => {
+// Logout controller
+export const logout = async (req, res) => {
   try {
-    const userId = req.userData.userId;
+    const token = req.headers.authorization?.split(' ')[1];
     
-    const user = await User.findById(userId).select('-password');
-    if (!user) {
-      return res.status(404).json({ message: "User not found" });
+    if (token) {
+      // Invalidate token in Redis
+      const tokenKey = `${TOKEN_PREFIX}${token}`;
+      const tokenData = await redisService.getValue(tokenKey);
+      
+      if (tokenData && tokenData.userId) {
+        // Mark token as invalid but keep it for a while to prevent reuse
+        await redisService.setValue(tokenKey, {
+          ...tokenData,
+          valid: false,
+        }, 3600); // Keep invalid token for 1 hour to prevent reuse
+      } else {
+        // If token not found in Redis, just delete it
+        await redisService.deleteKey(tokenKey);
+      }
     }
     
-    res.status(200).json({ user });
+    res.status(200).json({ message: 'Logged out successfully' });
   } catch (error) {
-    console.error("Get profile error:", error);
-    res.status(500).json({ message: "Server error", error: error.message });
+    console.error('Logout error:', error);
+    res.status(500).json({ message: 'Server error during logout' });
   }
 };
+
