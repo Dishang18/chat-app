@@ -1,18 +1,18 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { io } from "socket.io-client";
 
-const SOCKET_URL = import.meta.env.VITE_BACKEND_URL;
-
 const ChatScreen = ({ currentUser, selectedUser, onBack, apiUrl }) => {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [conversationId, setConversationId] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [conversationLoading, setConversationLoading] = useState(false);
   const [error, setError] = useState(null);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  const [socketStatus, setSocketStatus] = useState('disconnected');
+  const [useSocketIO, setUseSocketIO] = useState(true); // Track if we should use Socket.IO or fallback
   const messagesEndRef = useRef(null);
   const socketRef = useRef();
+  const reconnectAttempts = useRef(0);
 
   // Check for mobile screen size
   useEffect(() => {
@@ -24,57 +24,195 @@ const ChatScreen = ({ currentUser, selectedUser, onBack, apiUrl }) => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Socket connection
+  // Enhanced socket connection with better error handling
   useEffect(() => {
     if (!currentUser) return;
     
-    socketRef.current = io(SOCKET_URL, { transports: ["websocket"] });
-
-    socketRef.current.on("connect", () => {
-      console.log("Socket connected with ID:", socketRef.current.id);
-      socketRef.current.emit("user_connected", currentUser._id || currentUser.id);
-    });
-
-    socketRef.current.on("private_message", (message) => {
-      console.log("Received message via socket:", message);
-      
-      const currentUserId = currentUser._id || currentUser.id;
-      const selectedUserId = selectedUser._id || selectedUser.id;
-      
-      if ((message.from === selectedUserId && message.to === currentUserId) || 
-          (message.from === currentUserId && message.to === selectedUserId) ||
-          (message.sender === selectedUserId && message.receiver === currentUserId) ||
-          (message.sender === currentUserId && message.receiver === selectedUserId)) {
-        
-        const formattedMessage = {
-          _id: message._id || `temp-${Date.now()}`,
-          sender: message.sender || message.from,
-          receiver: message.receiver || message.to,
-          originalText: message.originalText || message.text || message.message,
-          timestamp: message.timestamp || message.createdAt || new Date().toISOString(),
-          conversationId: conversationId
-        };
-        
-        setMessages(prevMessages => {
-          const isDuplicate = prevMessages.some(m => 
-            m.originalText === formattedMessage.originalText && 
-            Math.abs(new Date(m.timestamp) - new Date(formattedMessage.timestamp)) < 5000
-          );
-          
-          if (isDuplicate) {
-            return prevMessages;
-          }
-          return [...prevMessages, formattedMessage];
-        });
+    // FIX: Parse the API URL to get the base URL (removing /api if it exists)
+    const baseUrl = new URL(apiUrl).origin;
+    console.log("Base Socket.IO URL:", baseUrl);
+    
+    try {
+      // Clear any existing socket
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+        socketRef.current = null;
       }
-    });
+      
+      // Create socket with correct configuration - MAIN FIX HERE
+      socketRef.current = io(baseUrl, {
+        path: "/socket.io", // IMPORTANT: Use default Socket.IO path
+        transports: ["polling", "websocket"], // Start with polling, try websocket after
+        reconnection: true,
+        reconnectionAttempts: 5,
+        reconnectionDelay: 1000,
+        timeout: 20000,
+        forceNew: true,
+        auth: {
+          userId: currentUser._id || currentUser.id,
+          username: currentUser.username || "Dishang18"
+        }
+      });
+      
+      // Connection handlers
+      socketRef.current.on("connect", () => {
+        console.log("Socket connected with ID:", socketRef.current.id);
+        setSocketStatus('connected');
+        reconnectAttempts.current = 0;
+        setUseSocketIO(true);
+        
+        // Register user with the socket server
+        socketRef.current.emit("user_connected", currentUser._id || currentUser.id);
+        
+        // Start heartbeat to maintain connection
+        const heartbeatInterval = setInterval(() => {
+          if (socketRef.current && socketRef.current.connected) {
+            socketRef.current.emit("heartbeat", currentUser._id || currentUser.id);
+          }
+        }, 30000); // Every 30 seconds
+        
+        // Clear interval on disconnect
+        socketRef.current.on("disconnect", () => {
+          clearInterval(heartbeatInterval);
+        });
+        
+        return () => clearInterval(heartbeatInterval);
+      });
+      
+      socketRef.current.on("disconnect", (reason) => {
+        console.log(`Socket disconnected: ${reason}`);
+        setSocketStatus('disconnected');
+        
+        // Automatically reconnect if server disconnected us
+        if (reason === "io server disconnect") {
+          socketRef.current.connect();
+        }
+      });
+      
+      socketRef.current.on("connect_error", (error) => {
+        console.log("Connection error:", error);
+        setSocketStatus('error');
+        
+        // After multiple failures, fall back to HTTP
+        if (reconnectAttempts.current++ > 3) {
+          console.log("Socket.IO failed multiple times, falling back to HTTP");
+          setUseSocketIO(false);
+          setError(`Chat connection issue: ${error.message}. Using HTTP fallback.`);
+        }
+      });
+      
+      socketRef.current.on("reconnect", (attemptNumber) => {
+        console.log(`Socket reconnected after ${attemptNumber} attempts`);
+        setSocketStatus('connected');
+        setError(null);
+      });
+      
+      // Log all socket events for debugging
+      socketRef.current.onAny((event, ...args) => {
+        console.log(`Socket event: ${event}`, args);
+      });
 
-    return () => {
-      console.log("Disconnecting socket");
-      socketRef.current?.disconnect();
-      socketRef.current = null;
-    };
-  }, [currentUser, selectedUser, conversationId]);
+      // Message handling
+      socketRef.current.on("private_message", (message) => {
+        console.log("Received message via socket:", message);
+        
+        const currentUserId = currentUser._id || currentUser.id;
+        const selectedUserId = selectedUser?._id || selectedUser?.id;
+        
+        // Skip if no selected user
+        if (!selectedUserId) return;
+        
+        if ((message.from === selectedUserId && message.to === currentUserId) || 
+            (message.from === currentUserId && message.to === selectedUserId) ||
+            (message.sender === selectedUserId && message.receiver === currentUserId) ||
+            (message.sender === currentUserId && message.receiver === selectedUserId)) {
+          
+          const formattedMessage = {
+            _id: message._id || `temp-${Date.now()}`,
+            sender: message.sender || message.from,
+            receiver: message.receiver || message.to,
+            originalText: message.originalText || message.text || message.message,
+            timestamp: message.timestamp || message.createdAt || new Date().toISOString(),
+            conversationId: conversationId
+          };
+          
+          setMessages(prevMessages => {
+            const isDuplicate = prevMessages.some(m => 
+              m.originalText === formattedMessage.originalText && 
+              Math.abs(new Date(m.timestamp) - new Date(formattedMessage.timestamp)) < 5000
+            );
+            
+            if (isDuplicate) {
+              return prevMessages;
+            }
+            return [...prevMessages, formattedMessage];
+          });
+        }
+      });
+
+      // Handle page visibility changes
+      const handleVisibilityChange = () => {
+        if (document.visibilityState === 'visible') {
+          // Reconnect if needed when user returns to tab
+          if (socketRef.current && !socketRef.current.connected) {
+            console.log("Page visible again, reconnecting socket");
+            socketRef.current.connect();
+          }
+        }
+      };
+
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+
+      // Clean up
+      return () => {
+        console.log("Cleaning up socket connection");
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+        
+        if (socketRef.current) {
+          socketRef.current.disconnect();
+          socketRef.current = null;
+        }
+      };
+    } catch (err) {
+      console.error("Error setting up socket:", err);
+      setError("Failed to initialize chat connection: " + err.message);
+      setSocketStatus('error');
+      setUseSocketIO(false);
+    }
+  }, [currentUser, apiUrl]);
+
+  // HTTP fallback polling when Socket.IO fails
+  useEffect(() => {
+    // Skip if socket is working or no conversation
+    if (useSocketIO || !conversationId || !selectedUser) return;
+    
+    console.log("Using HTTP polling fallback for messages");
+    
+    // Poll for new messages every 3 seconds
+    const interval = setInterval(async () => {
+      try {
+        const currentUserId = currentUser._id || currentUser.id;
+        const selectedUserId = selectedUser._id || selectedUser.id;
+        
+        const res = await fetch(`${apiUrl}/messages/between?user1=${currentUserId}&user2=${selectedUserId}`);
+        if (!res.ok) throw new Error("Failed to fetch messages");
+        
+        const msgs = await res.json();
+        
+        setMessages(prev => {
+          // Only update if we have new messages
+          if (msgs.length > prev.length) {
+            return msgs;
+          }
+          return prev;
+        });
+      } catch (err) {
+        console.error("Error polling for messages:", err);
+      }
+    }, 3000);
+    
+    return () => clearInterval(interval);
+  }, [useSocketIO, conversationId, selectedUser, currentUser, apiUrl]);
 
   // Fix user objects if needed
   useEffect(() => {
@@ -182,12 +320,13 @@ const ChatScreen = ({ currentUser, selectedUser, onBack, apiUrl }) => {
         )
       );
       
-      // Emit socket event
-      if (socketRef.current) {
+      // Emit socket event if socket is connected
+      if (socketRef.current && socketRef.current.connected) {
         socketRef.current.emit("private_message", {
           from: senderId,
           to: receiverId,
-          message: input
+          message: input,
+          conversationId: conversationId
         });
       }
     } catch (error) {
@@ -205,11 +344,26 @@ const ChatScreen = ({ currentUser, selectedUser, onBack, apiUrl }) => {
     }
   };
 
-  // Toggle sidebar function (mobile only)
-  const toggleSidebar = () => {
-    // Only call onBack which will set selectedUser to null
-    // This will return to the dashboard with sidebar visible
-    onBack();
+  // Socket status indicator component
+  const renderSocketStatus = () => {
+    if (socketStatus === 'connected' || !useSocketIO) return null;
+    
+    return (
+      <div className={`text-sm rounded-md p-2 mb-4 flex items-center animate-pulse-slow ${
+        socketStatus === 'error' 
+          ? 'bg-red-900 bg-opacity-30 text-red-200' 
+          : 'bg-yellow-900 bg-opacity-30 text-yellow-200'
+      }`}>
+        <div className={`w-2 h-2 rounded-full mr-2 ${
+          socketStatus === 'error' ? 'bg-red-500' : 'bg-yellow-500'
+        }`}></div>
+        <span>
+          {socketStatus === 'error' 
+            ? 'Connection error. Trying to reconnect...' 
+            : 'Connecting to chat server...'}
+        </span>
+      </div>
+    );
   };
 
   if (!selectedUser) return null;
@@ -236,18 +390,16 @@ const ChatScreen = ({ currentUser, selectedUser, onBack, apiUrl }) => {
           />
           <div className="flex flex-col ml-3">
             <span className="font-bold text-white text-base sm:text-lg">{selectedUser.username}</span>
-            {conversationId && 
-              <span className="text-xs text-cyan-100 opacity-75">
-                {loading ? "Loading messages..." : "Connected"}
-              </span>
-            }
+            <span className="text-xs text-cyan-100 opacity-75">
+              {!useSocketIO ? "HTTP Mode" : (socketStatus === 'connected' ? 'Connected' : 'Connecting...')}
+            </span>
           </div>
         </div>
 
         {/* Mobile button to show contacts */}
         <button 
           className="md:hidden p-2 rounded-full bg-cyan-600 hover:bg-cyan-700 text-white"
-          onClick={toggleSidebar}
+          onClick={onBack}
           aria-label="Show contacts"
         >
           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -261,6 +413,9 @@ const ChatScreen = ({ currentUser, selectedUser, onBack, apiUrl }) => {
       
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-3 sm:px-4 py-4 sm:py-6 space-y-3 bg-gradient-to-b from-transparent to-gray-900">
+        {/* Socket status indicator */}
+        {renderSocketStatus()}
+        
         {error && (
           <div className="bg-red-900 bg-opacity-50 border border-red-500 text-red-200 px-4 py-3 rounded mb-4 animate-fade-in">
             {error}
@@ -342,7 +497,7 @@ const ChatScreen = ({ currentUser, selectedUser, onBack, apiUrl }) => {
       {/* Mobile toggle button for contacts (floating) */}
       {isMobile && (
         <button
-          onClick={toggleSidebar}
+          onClick={onBack}
           className="md:hidden fixed bottom-5 left-5 z-50 w-12 h-12 rounded-full bg-gradient-to-r from-cyan-500 to-cyan-700 text-white shadow-lg flex items-center justify-center hover:scale-105 active:scale-95 transition-transform"
           aria-label="Show Contacts"
         >

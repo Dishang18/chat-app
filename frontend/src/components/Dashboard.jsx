@@ -23,7 +23,7 @@ const Dashboard = () => {
       if (mobile && selectedUser) {
         setSidebarOpen(false);
       } else if (!mobile) {
-        // On desktop, always show sidebar
+        // On desktop, always show sidebar  
         setSidebarOpen(true);
       }
     };
