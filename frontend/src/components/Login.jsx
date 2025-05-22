@@ -52,7 +52,7 @@ const Login = () => {
         console.log('🔑 API URL:', API_URL);
         console.log('🔑 Attempting login with:', { email: formData.email });
         
-        const response = await axios.post(`${API_URL}/api/auth/login`, formData);
+        const response = await axios.post(`${API_URL}/auth/login`, formData);
         
         console.log('✅ Login successful!');
         console.log('📦 Response:', response.data);
