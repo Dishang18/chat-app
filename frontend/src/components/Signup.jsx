@@ -75,7 +75,7 @@ const Signup = () => {
       try {
         const { confirmPassword, ...signupData } = formData;
         const API_URL = import.meta.env.VITE_BACKEND_URL;
-        const response = await axios.post(`${API_URL}/api/auth/signup`, signupData);
+        const response = await axios.post(`${API_URL}/auth/signup`, signupData);
         
         localStorage.setItem('token', response.data.token);
         localStorage.setItem('user', JSON.stringify(response.data.user));

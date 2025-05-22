@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
+import UserProfile from './UserProfile';
 
-const Sidebar = ({ users, user, onLogout, sidebarOpen, setSidebarOpen, onUserClick }) => {
+const Sidebar = ({ users, user, onLogout, sidebarOpen, setSidebarOpen, onUserClick, setUser }) => {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [search, setSearch] = useState('');
+  const [showProfile, setShowProfile] = useState(false);
 
   const filteredUsers = users.filter(u =>
     u.username.toLowerCase().includes(search.toLowerCase())
@@ -65,32 +67,55 @@ const Sidebar = ({ users, user, onLogout, sidebarOpen, setSidebarOpen, onUserCli
         </div>
         {/* Profile Avatar & Dropdown */}
         <div className="relative px-6 py-5 border-t border-gray-800 flex items-center justify-between">
-          <div className="flex items-center gap-3 cursor-pointer" onClick={() => setDropdownOpen(open => !open)}>
+          <div className="relative">
+          {console.log('Sidebar user:', user)}
             <img
-              src={`https://ui-avatars.com/api/?name=${user.username}&background=22d3ee&color=fff`}
+              src={user.profilepic || `https://ui-avatars.com/api/?name=${user.username}&background=22d3ee&color=fff`}
               alt="Profile"
-              className="w-10 h-10 rounded-full border-2 border-cyan-400"
+              className="w-12 h-12 rounded-full border-2 border-cyan-400 cursor-pointer transition hover:ring-2 hover:ring-cyan-400"
+              onClick={() => setDropdownOpen(open => !open)}
             />
-            <span className="text-gray-200 font-medium">{user.username}</span>
-          </div>
-          {dropdownOpen && (
-            <div className="absolute bottom-16 left-6 w-40 bg-gray-900 border border-gray-700 rounded shadow-lg z-50">
-              <button
-                className="w-full text-left px-4 py-2 text-gray-200 hover:bg-gray-800 transition"
-                onClick={() => setDropdownOpen(false)}
-              >
+            {dropdownOpen && (
+              <div className="absolute left-1/2-translate-x-1/2 bottom-full mt-3 z-50 w-52 bg-gray-900 border border-gray-700 rounded-2xl shadow-lg flex flex-col items-center py-4">
+                <img
+                  src={user.profilepic || `https://ui-avatars.com/api/?name=${user.username}&background=22d3ee&color=fff`}
+                  alt="Profile"
+                  className="w-16 h-16 rounded-full border-2 border-cyan-400 mb-2"
+                />
+                <span className="text-gray-200 font-semibold mb-2">{user.username}</span>
+                <button
+                  className="w-36 px-4 py-2 rounded-full bg-cyan-600 text-white font-semibold shadow hover:bg-cyan-700 transition"
+                  onClick={() => {
+                    setDropdownOpen(false);
+                    setShowProfile(true);
+                  }}
+                >
                 Profile
-              </button>
-              <button
-                className="w-full text-left px-4 py-2 text-red-400 hover:bg-gray-800 transition"
-                onClick={onLogout}
-              >
-                Logout
-              </button>
-            </div>
-          )}
+                </button>/
+                <button
+                  className="w-36 px-4 py-2 rounded-full bg-gray-700 text-red-400 font-semibold shadow hover:bg-gray-600 transition"
+                  onClick={onLogout}
+                >
+                  Logout
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </aside>
+      {/* User Profile Modal */}
+      {showProfile && (
+        <UserProfile
+          user={user}
+          onClose={() => setShowProfile(false)}
+          apiUrl={import.meta.env.VITE_BACKEND_URL}
+          onUpdate={updatedUser => {
+            console.log('Updated user:', updatedUser);
+            setShowProfile(false);
+            setUser(updatedUser); // Make sure setUser updates the parent user state!
+          }}
+        />
+      )}
     </>
   );
 };

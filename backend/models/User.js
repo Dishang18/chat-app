@@ -7,6 +7,13 @@ const userSchema = new mongoose.Schema({
     unique: true, 
     default: () => uuidv4() // Generate UUID for each user
   },
+  name:{
+    type:String
+  },
+  bio:{
+    type:String,
+    default:"Hey i am Using Samvad"
+  },
   username: { type: String, required: true },
   email: { type: String, unique: true, required: true },
   password: { type: String, required: true }, // hashed
@@ -14,6 +21,7 @@ const userSchema = new mongoose.Schema({
   phone: { type: String, required: true },
   isVerified: { type: Boolean, default: true }, // default true for simple signup
   online: { type: Boolean, default: false }, // <-- Add this line
+  profilepic: { type: String, default: "https://ui-avatars.com/api/?name=USer&background=22d3ee&color=fff" },
 });
 
 export default mongoose.model("User", userSchema);

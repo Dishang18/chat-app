@@ -12,14 +12,28 @@ const Dashboard = () => {
   const navigate = useNavigate();
   const apiUrl = import.meta.env.VITE_BACKEND_URL;
 
-  useEffect(() => {
-    const storedUser = localStorage.getItem('user');
-    if (storedUser) {
-      setUser(JSON.parse(storedUser));
-    } else {
+useEffect(() => {
+  const token = localStorage.getItem('token');
+  if (!token) {
+    navigate('/login');
+    return;
+  }
+  // Fetch the latest user data from backend
+  fetch(`${apiUrl}/user/me`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+    .then(res => {
+      if (!res.ok) throw new Error('Unauthorized');
+      return res.json();
+    })
+    .then(userData => setUser(userData))
+    .catch(() => {
+      localStorage.removeItem('token');
       navigate('/login');
-    }
-  }, [navigate]);
+    });
+}, [apiUrl, navigate]);
+
+console.log("user", user);  
 
   useEffect(() => {
     fetch(`${apiUrl}/user`)
@@ -49,6 +63,7 @@ const Dashboard = () => {
       <Sidebar
         users={users}
         user={user}
+        setUser={setUser}
         onLogout={handleLogout}
         sidebarOpen={sidebarOpen}
         setSidebarOpen={setSidebarOpen}

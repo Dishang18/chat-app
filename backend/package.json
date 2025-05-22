@@ -21,6 +21,7 @@
     "ioredis": "^5.6.1",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.14.1",
+    "multer": "^2.0.0",
     "redis": "^5.1.0",
     "uuid": "^11.1.0"
   },

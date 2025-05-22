@@ -14,7 +14,7 @@ app.use(cors());
 // connectDB();
 // Routes
 app.use("/api/auth", authRoutes);
-app.use("/api", userRoute);  
+app.use("/api/", userRoute);  
 
 // Connect to DB and start server
 const PORT = process.env.PORT || 5000;
