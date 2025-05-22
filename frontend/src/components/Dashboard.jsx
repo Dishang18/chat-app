@@ -6,35 +6,54 @@ import { useNavigate } from 'react-router-dom';
 const Dashboard = () => {
   const [user, setUser] = useState(null);
   const [users, setUsers] = useState([]);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [loading, setLoading] = useState(true);
   const [selectedUser, setSelectedUser] = useState(null);
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const navigate = useNavigate();
   const apiUrl = import.meta.env.VITE_BACKEND_URL;
 
-useEffect(() => {
-  const token = localStorage.getItem('token');
-  if (!token) {
-    navigate('/login');
-    return;
-  }
-  // Fetch the latest user data from backend
-  fetch(`${apiUrl}/user/me`, {
-    headers: { Authorization: `Bearer ${token}` }
-  })
-    .then(res => {
-      if (!res.ok) throw new Error('Unauthorized');
-      return res.json();
-    })
-    .then(userData => setUser(userData))
-    .catch(() => {
-      localStorage.removeItem('token');
+  // Check screen size
+  useEffect(() => {
+    const handleResize = () => {
+      const mobile = window.innerWidth < 768;
+      setIsMobile(mobile);
+      
+      // On mobile, hide sidebar when chat is active
+      if (mobile && selectedUser) {
+        setSidebarOpen(false);
+      } else if (!mobile) {
+        // On desktop, always show sidebar
+        setSidebarOpen(true);
+      }
+    };
+    
+    window.addEventListener('resize', handleResize);
+    handleResize(); // Initial check
+    return () => window.removeEventListener('resize', handleResize);
+  }, [selectedUser]);
+
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (!token) {
       navigate('/login');
-    });
-}, [apiUrl, navigate]);
-
-console.log("user", user);  
-
+      return;
+    }
+    // Fetch the latest user data from backend
+    fetch(`${apiUrl}/user/me`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+      .then(res => {
+        if (!res.ok) throw new Error('Unauthorized');
+        return res.json();
+      })
+      .then(userData => setUser(userData))
+      .catch(() => {
+        localStorage.removeItem('token');
+        navigate('/login');
+      });
+  }, [apiUrl, navigate]);
+  
   useEffect(() => {
     fetch(`${apiUrl}/user`)
       .then(res => res.json())
@@ -49,6 +68,21 @@ console.log("user", user);
     navigate('/login');
   };
 
+  const handleUserSelect = (user) => {
+    setSelectedUser(user);
+    // On mobile, hide sidebar when selecting a user
+    if (isMobile) {
+      setSidebarOpen(false);
+    }
+  };
+
+  // Handle back action from ChatScreen
+  const handleBack = () => {
+    setSelectedUser(null);
+    // Show sidebar when going back to user list
+    setSidebarOpen(true);
+  };
+
   if (loading || !user) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-900">
@@ -59,24 +93,27 @@ console.log("user", user);
 
   return (
     <div className="min-h-screen flex bg-gradient-to-br from-gray-900 to-gray-800">
-      {/* Sidebar */}
-      <Sidebar
-        users={users}
-        user={user}
-        setUser={setUser}
-        onLogout={handleLogout}
-        sidebarOpen={sidebarOpen}
-        setSidebarOpen={setSidebarOpen}
-        onUserClick={setSelectedUser}
-      />
+      {/* Sidebar - Conditionally shown on mobile */}
+      <div className={`${sidebarOpen ? 'block' : 'hidden'} ${isMobile ? 'absolute inset-0 z-10 w-full' : 'w-80'} md:block md:relative`}>
+        <Sidebar
+          users={users}
+          user={user}
+          setUser={setUser}
+          onLogout={handleLogout}
+          sidebarOpen={sidebarOpen}
+          setSidebarOpen={setSidebarOpen}
+          onUserClick={handleUserSelect}
+          selectedUser={selectedUser}
+        />
+      </div>
 
-      {/* Main Content */}
-      <main className="flex-1 flex flex-col items-center justify-center px-2 h-screen">
+      {/* Main Content - Full screen on mobile when chat is active */}
+      <main className={`flex-1 flex flex-col items-center justify-center px-2 h-screen ${isMobile && sidebarOpen ? 'hidden' : 'block'}`}>
         {selectedUser ? (
           <ChatScreen
             currentUser={user}
             selectedUser={selectedUser}
-            onBack={() => setSelectedUser(null)}
+            onBack={handleBack}
             apiUrl={apiUrl}
           />
         ) : (
@@ -96,6 +133,16 @@ console.log("user", user);
               Your conversations will appear here.<br />
               Enjoy secure and fast messaging!
             </div>
+            
+            {/* Mobile: Show sidebar button */}
+            {isMobile && !sidebarOpen && (
+              <button
+                onClick={() => setSidebarOpen(true)}
+                className="mt-6 px-6 py-2 bg-gradient-to-r from-cyan-500 to-cyan-700 text-white rounded-full font-medium hover:from-cyan-400 hover:to-cyan-600 transition-all duration-200"
+              >
+                Show Contacts
+              </button>
+            )}
           </div>
         )}
       </main>
