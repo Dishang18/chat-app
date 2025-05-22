@@ -1,10 +1,34 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import UserProfile from './UserProfile';
+
+const ManAvatar = ({ size = 80 }) => (
+  <svg width={size} height={size} viewBox="0 0 40 40" fill="none">
+    <circle cx="20" cy="14" r="8" fill="#94a3b8"/>
+    <ellipse cx="20" cy="30" rx="12" ry="8" fill="#94a3b8"/>
+  </svg>
+);
 
 const Sidebar = ({ users, user, onLogout, sidebarOpen, setSidebarOpen, onUserClick, setUser }) => {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [showProfile, setShowProfile] = useState(false);
+  const [photoModalUrl, setPhotoModalUrl] = useState(null); // string | null
+  const [photoModalIsSvg, setPhotoModalIsSvg] = useState(false); // true if SVG avatar
+
+  const dropdownRef = useRef();
+
+  // Close dropdown if clicked outside
+  useEffect(() => {
+    function handleClick(e) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        setDropdownOpen(false);
+      }
+    }
+    if (dropdownOpen) {
+      document.addEventListener('mousedown', handleClick);
+    }
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [dropdownOpen]);
 
   const filteredUsers = users.filter(u =>
     u.username.toLowerCase().includes(search.toLowerCase())
@@ -56,11 +80,31 @@ const Sidebar = ({ users, user, onLogout, sidebarOpen, setSidebarOpen, onUserCli
                 }}
               >
                 {/* User avatar */}
-                <img
-                  src={u.profilepic || `https://ui-avatars.com/api/?name=${u.username}&background=22d3ee&color=fff`}
-                  alt="Profile"
-                  className="w-8 h-8 rounded-full border-2 border-cyan-400 mr-3 object-cover"
-                />
+                {u.profilepic ? (
+                  <img
+                    src={u.profilepic}
+                    alt="Profile"
+                    className="w-8 h-8 rounded-full border-2 border-cyan-400 mr-3 object-cover cursor-pointer bg-gray-800"
+                    onClick={e => {
+                      e.stopPropagation();
+                      setPhotoModalUrl(u.profilepic);
+                      setPhotoModalIsSvg(false);
+                    }}
+                    title="Click to view full photo"
+                  />
+                ) : (
+                  <span
+                    className="w-8 h-8 flex items-center justify-center rounded-full border-2 border-cyan-400 mr-3 bg-gray-800 cursor-pointer"
+                    onClick={e => {
+                      e.stopPropagation();
+                      setPhotoModalUrl(null);
+                      setPhotoModalIsSvg(true);
+                    }}
+                    title="No profile photo"
+                  >
+                    <ManAvatar size={28} />
+                  </span>
+                )}
                 <span className="text-gray-200 font-medium">
                   {u.username}
                   {u.id === user.id || u._id === user.id ? " (You)" : ""}
@@ -69,37 +113,51 @@ const Sidebar = ({ users, user, onLogout, sidebarOpen, setSidebarOpen, onUserCli
             ))}
           </ul>
         </div>
-        {/* Profile Avatar & Dropdown */}
+        {/* Sidebar Footer: Avatar, Dropdown, Logout */}
         <div className="relative px-6 py-5 border-t border-gray-800 flex items-center justify-between">
-          <div className="relative">
-          {console.log('Sidebar user:', user)}
+          <div className="relative flex items-center gap-3">
             <img
               src={user.profilepic || `https://ui-avatars.com/api/?name=${user.username}&background=22d3ee&color=fff`}
               alt="Profile"
               className="w-12 h-12 rounded-full border-2 border-cyan-400 cursor-pointer transition hover:ring-2 hover:ring-cyan-400"
               onClick={() => setDropdownOpen(open => !open)}
+              title="Open menu"
             />
+            {/* Always visible logout button with icon */}
+            <button
+              className="pl-30 p-2 rounded-full hover:bg-grey-800 transition"
+              onClick={onLogout}x
+              title="Logout"
+            >
+              <svg width="24" height="24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M17 16l4-4m0 0l-4-4m4 4H7"></path>
+                <path d="M9 20H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h4"></path>
+              </svg>
+            </button>
+            {/* Dropdown */}
             {dropdownOpen && (
-              <div className="absolute left-1/2-translate-x-1/2 bottom-full mt-3 z-50 w-52 bg-gray-900 border border-gray-700 rounded-2xl shadow-lg flex flex-col items-center py-4">
-                <img
-                  src={user.profilepic || `https://ui-avatars.com/api/?name=${user.username}&background=22d3ee&color=fff`}
-                  alt="Profile"
-                  className="w-16 h-16 rounded-full border-2 border-cyan-400 mb-2"
-                />
-                <span className="text-gray-200 font-semibold mb-2">{user.username}</span>
+              <div
+                ref={dropdownRef}
+                className="absolute left-1/2 -translate-x-1/2 bottom-full mb-3 z-50 w-52 bg-gray-900 border border-gray-700 rounded-2xl shadow-lg flex flex-col items-center py-4"
+              >
+                <span className="text-gray-200 font-semibold mb-4">{user.username}</span>
                 <button
-                  className="w-36 px-4 py-2 rounded-full bg-cyan-600 text-white font-semibold shadow hover:bg-cyan-700 transition"
+                  className="w-36 mb-2 px-4 py-2 rounded-full bg-cyan-600 text-white font-semibold shadow hover:bg-cyan-700 transition"
                   onClick={() => {
                     setDropdownOpen(false);
                     setShowProfile(true);
                   }}
                 >
-                Profile
-                </button>/
+                  Profile
+                </button>
                 <button
-                  className="w-36 px-4 py-2 rounded-full bg-gray-700 text-red-400 font-semibold shadow hover:bg-gray-600 transition"
+                  className="w-36 px-4 py-2 rounded-full bg-gray-700 text-red-400 font-semibold shadow hover:bg-gray-600 transition flex items-center justify-center gap-2"
                   onClick={onLogout}
                 >
+                  <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M17 16l4-4m0 0l-4-4m4 4H7"></path>
+                    <path d="M9 20H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h4"></path>
+                  </svg>
                   Logout
                 </button>
               </div>
@@ -107,6 +165,39 @@ const Sidebar = ({ users, user, onLogout, sidebarOpen, setSidebarOpen, onUserCli
           </div>
         </div>
       </aside>
+      {/* Full Photo Modal */}
+      {(photoModalUrl || photoModalIsSvg) && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-80"
+          onClick={() => {
+            setPhotoModalUrl(null);
+            setPhotoModalIsSvg(false);
+          }}
+        >
+          <div className="relative">
+            {photoModalIsSvg ? (
+              <div className="flex items-center justify-center bg-gray-900 rounded-2xl border-4 border-cyan-400 shadow-2xl w-[320px] h-[320px]">
+                <ManAvatar size={180} />
+              </div>
+            ) : (
+              <img
+                src={photoModalUrl}
+                alt="Full Profile"
+                className="max-w-[90vw] max-h-[90vh] rounded-2xl border-4 border-cyan-400 shadow-2xl bg-gray-900"
+              />
+            )}
+            <button
+              className="absolute top-2 right-2 bg-gray-900 bg-opacity-70 text-white rounded-full w-8 h-8 flex items-center justify-center text-xl"
+              onClick={e => {
+                e.stopPropagation();
+                setPhotoModalUrl(null);
+                setPhotoModalIsSvg(false);
+              }}
+              title="Close"
+            >✕</button>
+          </div>
+        </div>
+      )}
       {/* User Profile Modal */}
       {showProfile && (
         <UserProfile
@@ -114,9 +205,8 @@ const Sidebar = ({ users, user, onLogout, sidebarOpen, setSidebarOpen, onUserCli
           onClose={() => setShowProfile(false)}
           apiUrl={import.meta.env.VITE_BACKEND_URL}
           onUpdate={updatedUser => {
-            console.log('Updated user:', updatedUser);
             setShowProfile(false);
-            setUser(updatedUser); // Make sure setUser updates the parent user state!
+            setUser(updatedUser);
           }}
         />
       )}

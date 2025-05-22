@@ -10,6 +10,13 @@ const LANGUAGES = [
   // Add more as needed
 ];
 
+const ManAvatar = ({ size = 180 }) => (
+  <svg width={size} height={size} viewBox="0 0 40 40" fill="none">
+    <circle cx="20" cy="14" r="8" fill="#94a3b8"/>
+    <ellipse cx="20" cy="30" rx="12" ry="8" fill="#94a3b8"/>
+  </svg>
+);
+
 const UserProfile = ({ user, onClose, onUpdate, apiUrl }) => {
   const [editMode, setEditMode] = useState(false);
   const [form, setForm] = useState({
@@ -22,6 +29,9 @@ const UserProfile = ({ user, onClose, onUpdate, apiUrl }) => {
   });
   const [picFile, setPicFile] = useState(null);
   const [imgKey, setImgKey] = useState(Date.now()); // For cache busting
+
+  // For full photo modal
+  const [showPhotoModal, setShowPhotoModal] = useState(false);
 
   // Sync form with user prop when modal opens or user changes
   useEffect(() => {
@@ -111,6 +121,9 @@ const UserProfile = ({ user, onClose, onUpdate, apiUrl }) => {
         ? `${form.profilepic}?t=${imgKey}`
         : `https://ui-avatars.com/api/?name=${form.name || user.username || 'User'}&background=22d3ee&color=fff`;
 
+  // Whether to show SVG avatar in modal
+  const isSvgAvatar = !form.profilepic && !picFile;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-60 backdrop-blur-sm animate-fade-in-fast">
       <div className="relative bg-gradient-to-br from-gray-900/90 via-gray-800/90 to-cyan-900/90 rounded-2xl shadow-2xl p-8 w-full max-w-md border border-cyan-700 glassmorphism">
@@ -120,11 +133,24 @@ const UserProfile = ({ user, onClose, onUpdate, apiUrl }) => {
         >✕</button>
         <div className="flex flex-col items-center">
           <label className="relative mb-4 group flex flex-col items-center">
-            <img
-              src={profileImgSrc}
-              alt="Profile"
-              className="w-28 h-28 rounded-full border-4 border-cyan-400 object-cover mb-2 shadow-lg"
-            />
+            {/* Avatar/photo with click to view full */}
+            {form.profilepic || picFile ? (
+              <img
+                src={profileImgSrc}
+                alt="Profile"
+                className="w-28 h-28 rounded-full border-4 border-cyan-400 object-cover mb-2 shadow-lg cursor-pointer"
+                onClick={() => setShowPhotoModal(true)}
+                title="Click to view full photo"
+              />
+            ) : (
+              <span
+                className="w-28 h-28 flex items-center justify-center rounded-full border-4 border-cyan-400 bg-gray-800 mb-2 shadow-lg cursor-pointer"
+                onClick={() => setShowPhotoModal(true)}
+                title="Click to view full avatar"
+              >
+                <ManAvatar size={80} />
+              </span>
+            )}
             {editMode && (
               <>
                 <input
@@ -233,6 +259,35 @@ const UserProfile = ({ user, onClose, onUpdate, apiUrl }) => {
           )}
         </div>
       </div>
+      {/* Full Photo Modal */}
+      {showPhotoModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-80"
+          onClick={() => setShowPhotoModal(false)}
+        >
+          <div className="relative">
+            {form.profilepic || picFile ? (
+              <img
+                src={profileImgSrc}
+                alt="Full Profile"
+                className="max-w-[90vw] max-h-[90vh] rounded-2xl border-4 border-cyan-400 shadow-2xl bg-gray-900"
+              />
+            ) : (
+              <div className="flex items-center justify-center bg-gray-900 rounded-2xl border-4 border-cyan-400 shadow-2xl w-[320px] h-[320px]">
+                <ManAvatar size={180} />
+              </div>
+            )}
+            <button
+              className="absolute top-2 right-2 bg-gray-900 bg-opacity-70 text-white rounded-full w-8 h-8 flex items-center justify-center text-xl"
+              onClick={e => {
+                e.stopPropagation();
+                setShowPhotoModal(false);
+              }}
+              title="Close"
+            >✕</button>
+          </div>
+        </div>
+      )}
       <style>{`
         .glassmorphism {
           background: rgba(30, 41, 59, 0.85);
