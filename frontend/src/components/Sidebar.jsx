@@ -55,12 +55,16 @@ const Sidebar = ({ users, user, onLogout, sidebarOpen, setSidebarOpen, onUserCli
                   setSidebarOpen(false);
                 }}
               >
-                <span
-                  className={`h-3 w-3 rounded-full mr-3 ${
-                    u.online ? 'bg-green-400' : 'bg-gray-500'
-                  }`}
-                ></span>
-                <span className="text-gray-200 font-medium">{u.username}</span>
+                {/* User avatar */}
+                <img
+                  src={u.profilepic || `https://ui-avatars.com/api/?name=${u.username}&background=22d3ee&color=fff`}
+                  alt="Profile"
+                  className="w-8 h-8 rounded-full border-2 border-cyan-400 mr-3 object-cover"
+                />
+                <span className="text-gray-200 font-medium">
+                  {u.username}
+                  {u.id === user.id || u._id === user.id ? " (You)" : ""}
+                </span>
               </li>
             ))}
           </ul>
