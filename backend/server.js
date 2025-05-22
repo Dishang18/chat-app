@@ -28,7 +28,7 @@ const server = http.createServer(app);
 const io = initializeSocket(server);
 
 // Health check endpoint
-app.get('/api/health', (req, res) => {
+app.get('/health', (req, res) => {
   res.status(200).json({ 
     status: 'ok', 
     time: new Date().toISOString(),
@@ -38,8 +38,8 @@ app.get('/api/health', (req, res) => {
 });
 
 // API routes
-app.use("/api/auth", authRoutes);
-app.use("/api", userRoute);  
+app.use("/auth", authRoutes);
+app.use("/", userRoute);  
 app.use('/api', chatRoutes);
 
 // Connect to DB and start server

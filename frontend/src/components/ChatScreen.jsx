@@ -50,7 +50,7 @@ const ChatScreen = ({ currentUser, selectedUser, onBack, apiUrl }) => {
         forceNew: true,
         auth: {
           userId: currentUser._id || currentUser.id,
-          username: currentUser.username || "Dishang18"
+          username: currentUser.username || "User"
         }
       });
       
@@ -194,7 +194,7 @@ const ChatScreen = ({ currentUser, selectedUser, onBack, apiUrl }) => {
         const currentUserId = currentUser._id || currentUser.id;
         const selectedUserId = selectedUser._id || selectedUser.id;
         
-        const res = await fetch(`${apiUrl}/messages/between?user1=${currentUserId}&user2=${selectedUserId}`);
+        const res = await fetch(`${apiUrl}/api/messages/between?user1=${currentUserId}&user2=${selectedUserId}`);
         if (!res.ok) throw new Error("Failed to fetch messages");
         
         const msgs = await res.json();
@@ -239,7 +239,7 @@ const ChatScreen = ({ currentUser, selectedUser, onBack, apiUrl }) => {
     setLoading(true);
     
     // Create or find conversation
-    fetch(`${apiUrl}/conversations/findOrCreate`, {
+    fetch(`${apiUrl}/api/conversations/findOrCreate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ user1: currentUserId, user2: selectedUserId })
@@ -248,7 +248,7 @@ const ChatScreen = ({ currentUser, selectedUser, onBack, apiUrl }) => {
       .then(conv => {
         if (conv._id) {
           setConversationId(conv._id);
-          return fetch(`${apiUrl}/messages/between?user1=${currentUserId}&user2=${selectedUserId}`);
+          return fetch(`${apiUrl}/api/messages/between?user1=${currentUserId}&user2=${selectedUserId}`);
         } else {
           throw new Error("Failed to create conversation");
         }
@@ -301,7 +301,7 @@ const ChatScreen = ({ currentUser, selectedUser, onBack, apiUrl }) => {
     
     try {
       // Send to server
-      const res = await fetch(`${apiUrl}/messages`, {
+      const res = await fetch(`${apiUrl}/api/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newMsg),
@@ -493,22 +493,6 @@ const ChatScreen = ({ currentUser, selectedUser, onBack, apiUrl }) => {
           Send
         </button>
       </form>
-      
-      {/* Mobile toggle button for contacts (floating) */}
-      {isMobile && (
-        <button
-          onClick={onBack}
-          className="md:hidden fixed bottom-5 left-5 z-50 w-12 h-12 rounded-full bg-gradient-to-r from-cyan-500 to-cyan-700 text-white shadow-lg flex items-center justify-center hover:scale-105 active:scale-95 transition-transform"
-          aria-label="Show Contacts"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
-            <circle cx="9" cy="7" r="4"></circle>
-            <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
-            <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
-          </svg>
-        </button>
-      )}
       
       {/* Animations */}
       <style>{`

@@ -20,7 +20,7 @@ export const userController = {
       // Construct the URL to access the image (you may need to adjust the base URL)
       const url = `${
         process.env.BASE_URL || "http://localhost:9000"
-      }/api/user/profile-pic/${req.file.id}`;
+      }/user/profile-pic/${req.file.id}`;
       // Optionally update user profile here if you want
       await User.findByIdAndUpdate(req.userData.userId, { profilepic: url });
       console.log("Profile picture updated:", url);

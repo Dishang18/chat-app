@@ -29,6 +29,7 @@ const UserProfile = ({ user, onClose, onUpdate, apiUrl }) => {
   });
   const [picFile, setPicFile] = useState(null);
   const [imgKey, setImgKey] = useState(Date.now()); // For cache busting
+  const [picError, setPicError] = useState('');
 
   // For full photo modal
   const [showPhotoModal, setShowPhotoModal] = useState(false);
@@ -51,7 +52,13 @@ const UserProfile = ({ user, onClose, onUpdate, apiUrl }) => {
   };
 
   const handlePicChange = (e) => {
-    setPicFile(e.target.files[0]);
+    const file = e.target.files[0];
+    if (file && file.size > 5 * 1024 * 1024) { // 5MB
+      setPicError("Profile picture is too large. Please choose an image under 5MB.");
+      return;
+    }
+    setPicFile(file);
+    setPicError('');
   };
 
   const handleSave = async () => {
@@ -214,6 +221,17 @@ const UserProfile = ({ user, onClose, onUpdate, apiUrl }) => {
                 placeholder="Bio"
                 rows={3}
               />
+              {picError && (
+                <div className="fixed top-5 left-1/2 transform -translate-x-1/2 bg-red-500 text-white px-4 py-2 rounded shadow z-50">
+                  {picError}
+                  <button
+                    className="ml-3 text-white font-bold"
+                    onClick={() => setPicError('')}
+                  >
+                    ×
+                  </button>
+                </div>
+              )}
               <div className="flex gap-3 mt-6">
                 <button
                   className="flex-1 bg-gradient-to-r from-cyan-500 to-blue-500 text-white px-4 py-2 rounded-lg font-semibold shadow hover:from-cyan-400 hover:to-blue-400 transition"
