@@ -9,40 +9,28 @@ const ChatScreen = ({ currentUser, selectedUser, onBack, apiUrl }) => {
   const [error, setError] = useState(null);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [socketStatus, setSocketStatus] = useState('disconnected');
-  const [useSocketIO, setUseSocketIO] = useState(true); // Track if we should use Socket.IO or fallback
+  const [useSocketIO, setUseSocketIO] = useState(true);
   const messagesEndRef = useRef(null);
   const socketRef = useRef();
   const reconnectAttempts = useRef(0);
 
-  // Check for mobile screen size
   useEffect(() => {
-    const handleResize = () => {
-      setIsMobile(window.innerWidth < 768);
-    };
-    
+    const handleResize = () => setIsMobile(window.innerWidth < 768);
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Enhanced socket connection with better error handling
   useEffect(() => {
     if (!currentUser) return;
-    
-    // FIX: Parse the API URL to get the base URL (removing /api if it exists)
     const baseUrl = new URL(apiUrl).origin;
-    console.log("Base Socket.IO URL:", baseUrl);
-    
     try {
-      // Clear any existing socket
       if (socketRef.current) {
         socketRef.current.disconnect();
         socketRef.current = null;
       }
-      
-      // Create socket with correct configuration - MAIN FIX HERE
       socketRef.current = io(baseUrl, {
-        path: "/socket.io", // IMPORTANT: Use default Socket.IO path
-        transports: ["polling", "websocket"], // Start with polling, try websocket after
+        path: "/socket.io",
+        transports: ["polling", "websocket"],
         reconnection: true,
         reconnectionAttempts: 5,
         reconnectionDelay: 1000,
@@ -53,192 +41,134 @@ const ChatScreen = ({ currentUser, selectedUser, onBack, apiUrl }) => {
           username: currentUser.username || "User"
         }
       });
-      
-      // Connection handlers
+
       socketRef.current.on("connect", () => {
-        console.log("Socket connected with ID:", socketRef.current.id);
         setSocketStatus('connected');
         reconnectAttempts.current = 0;
         setUseSocketIO(true);
-        
-        // Register user with the socket server
         socketRef.current.emit("user_connected", currentUser._id || currentUser.id);
-        
-        // Start heartbeat to maintain connection
         const heartbeatInterval = setInterval(() => {
           if (socketRef.current && socketRef.current.connected) {
             socketRef.current.emit("heartbeat", currentUser._id || currentUser.id);
           }
-        }, 30000); // Every 30 seconds
-        
-        // Clear interval on disconnect
-        socketRef.current.on("disconnect", () => {
-          clearInterval(heartbeatInterval);
-        });
-        
+        }, 30000);
+        socketRef.current.on("disconnect", () => clearInterval(heartbeatInterval));
         return () => clearInterval(heartbeatInterval);
       });
-      
+
       socketRef.current.on("disconnect", (reason) => {
-        console.log(`Socket disconnected: ${reason}`);
         setSocketStatus('disconnected');
-        
-        // Automatically reconnect if server disconnected us
         if (reason === "io server disconnect") {
           socketRef.current.connect();
         }
       });
-      
+
       socketRef.current.on("connect_error", (error) => {
-        console.log("Connection error:", error);
         setSocketStatus('error');
-        
-        // After multiple failures, fall back to HTTP
         if (reconnectAttempts.current++ > 3) {
-          console.log("Socket.IO failed multiple times, falling back to HTTP");
           setUseSocketIO(false);
           setError(`Chat connection issue: ${error.message}. Using HTTP fallback.`);
         }
       });
-      
-      socketRef.current.on("reconnect", (attemptNumber) => {
-        console.log(`Socket reconnected after ${attemptNumber} attempts`);
+
+      socketRef.current.on("reconnect", () => {
         setSocketStatus('connected');
         setError(null);
       });
-      
-      // Log all socket events for debugging
+
       socketRef.current.onAny((event, ...args) => {
-        console.log(`Socket event: ${event}`, args);
+        // For debugging
       });
 
-      // Message handling
+      // --- UPDATED MESSAGE HANDLER ---
       socketRef.current.on("private_message", (message) => {
-        console.log("Received message via socket:", message);
-        
         const currentUserId = currentUser._id || currentUser.id;
         const selectedUserId = selectedUser?._id || selectedUser?.id;
-        
-        // Skip if no selected user
         if (!selectedUserId) return;
-        
-        if ((message.from === selectedUserId && message.to === currentUserId) || 
-            (message.from === currentUserId && message.to === selectedUserId) ||
-            (message.sender === selectedUserId && message.receiver === currentUserId) ||
-            (message.sender === currentUserId && message.receiver === selectedUserId)) {
-          
+
+        // Only add messages for this conversation
+        if (
+          (message.from === selectedUserId && message.to === currentUserId) ||
+          (message.from === currentUserId && message.to === selectedUserId) ||
+          (message.sender === selectedUserId && message.receiver === currentUserId) ||
+          (message.sender === currentUserId && message.receiver === selectedUserId)
+        ) {
+          const isSender = (message.sender || message.from) === currentUserId;
           const formattedMessage = {
             _id: message._id || `temp-${Date.now()}`,
             sender: message.sender || message.from,
             receiver: message.receiver || message.to,
-            originalText: message.originalText || message.text || message.message,
+            text: isSender
+              ? (message.originalText || message.text || message.message)
+              : (message.text || message.originalText || message.message),
+            originalText: isSender
+              ? undefined
+              : (message.originalText && message.text !== message.originalText
+                  ? message.originalText
+                  : undefined),
             timestamp: message.timestamp || message.createdAt || new Date().toISOString(),
             conversationId: conversationId
           };
-          
           setMessages(prevMessages => {
-            const isDuplicate = prevMessages.some(m => 
-              m.originalText === formattedMessage.originalText && 
+            const isDuplicate = prevMessages.some(m =>
+              m.text === formattedMessage.text &&
               Math.abs(new Date(m.timestamp) - new Date(formattedMessage.timestamp)) < 5000
             );
-            
-            if (isDuplicate) {
-              return prevMessages;
-            }
+            if (isDuplicate) return prevMessages;
             return [...prevMessages, formattedMessage];
           });
         }
       });
 
-      // Handle page visibility changes
       const handleVisibilityChange = () => {
         if (document.visibilityState === 'visible') {
-          // Reconnect if needed when user returns to tab
           if (socketRef.current && !socketRef.current.connected) {
-            console.log("Page visible again, reconnecting socket");
             socketRef.current.connect();
           }
         }
       };
-
       document.addEventListener('visibilitychange', handleVisibilityChange);
 
-      // Clean up
       return () => {
-        console.log("Cleaning up socket connection");
         document.removeEventListener('visibilitychange', handleVisibilityChange);
-        
         if (socketRef.current) {
           socketRef.current.disconnect();
           socketRef.current = null;
         }
       };
     } catch (err) {
-      console.error("Error setting up socket:", err);
       setError("Failed to initialize chat connection: " + err.message);
       setSocketStatus('error');
       setUseSocketIO(false);
     }
-  }, [currentUser, apiUrl]);
+  }, [currentUser, apiUrl, selectedUser, conversationId]);
 
-  // HTTP fallback polling when Socket.IO fails
   useEffect(() => {
-    // Skip if socket is working or no conversation
     if (useSocketIO || !conversationId || !selectedUser) return;
-    
-    console.log("Using HTTP polling fallback for messages");
-    
-    // Poll for new messages every 3 seconds
     const interval = setInterval(async () => {
       try {
         const currentUserId = currentUser._id || currentUser.id;
         const selectedUserId = selectedUser._id || selectedUser.id;
-        
         const res = await fetch(`${apiUrl}/api/messages/between?user1=${currentUserId}&user2=${selectedUserId}`);
         if (!res.ok) throw new Error("Failed to fetch messages");
-        
         const msgs = await res.json();
-        
-        setMessages(prev => {
-          // Only update if we have new messages
-          if (msgs.length > prev.length) {
-            return msgs;
-          }
-          return prev;
-        });
-      } catch (err) {
-        console.error("Error polling for messages:", err);
-      }
+        setMessages(prev => (msgs.length > prev.length ? msgs : prev));
+      } catch (err) {}
     }, 3000);
-    
     return () => clearInterval(interval);
   }, [useSocketIO, conversationId, selectedUser, currentUser, apiUrl]);
 
-  // Fix user objects if needed
   useEffect(() => {
-    if (currentUser && !currentUser._id && currentUser.id) {
-      console.log("Fixing currentUser structure...");
-      currentUser._id = currentUser.id;
-    }
-    
-    if (selectedUser && !selectedUser._id && selectedUser.id) {
-      console.log("Fixing selectedUser structure...");
-      selectedUser._id = selectedUser.id;
-    }
+    if (currentUser && !currentUser._id && currentUser.id) currentUser._id = currentUser.id;
+    if (selectedUser && !selectedUser._id && selectedUser.id) selectedUser._id = selectedUser.id;
   }, [currentUser, selectedUser]);
-  
-  // Fetch previous messages when selectedUser changes
+
   useEffect(() => {
     if (!selectedUser || !currentUser) return;
-    
     const currentUserId = currentUser._id || currentUser.id;
     const selectedUserId = selectedUser._id || selectedUser.id;
-    
     if (!currentUserId || !selectedUserId) return;
-    
     setLoading(true);
-    
-    // Create or find conversation
     fetch(`${apiUrl}/api/conversations/findOrCreate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -259,33 +189,24 @@ const ChatScreen = ({ currentUser, selectedUser, onBack, apiUrl }) => {
         setError(null);
       })
       .catch(err => {
-        console.error("Error fetching messages:", err);
         setError("Failed to load messages. Please try again.");
       })
-      .finally(() => {
-        setLoading(false);
-      });
+      .finally(() => setLoading(false));
   }, [selectedUser, currentUser, apiUrl]);
 
-  // Auto-scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // Handle sending a message
   const handleSend = async (e) => {
     e.preventDefault();
-    
     if (!input.trim() || !conversationId) return;
-    
     const senderId = currentUser?._id || currentUser?.id;
     const receiverId = selectedUser?._id || selectedUser?.id;
-    
     if (!senderId || !receiverId) {
       setError("Invalid user information. Please refresh the page.");
       return;
     }
-    
     const newMsg = {
       conversationId,
       sender: senderId,
@@ -294,33 +215,23 @@ const ChatScreen = ({ currentUser, selectedUser, onBack, apiUrl }) => {
       text: input,
       createdAt: new Date().toISOString(),
     };
-    
-    // Add to UI immediately
     setMessages(prev => [...prev, {...newMsg, pending: true}]);
     setInput("");
-    
     try {
-      // Send to server
       const res = await fetch(`${apiUrl}/api/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newMsg),
       });
-      
       if (!res.ok) throw new Error("Failed to send message");
-      
       const data = await res.json();
-      
-      // Update local message
-      setMessages(prev => 
-        prev.map(msg => 
-          msg.pending && msg.createdAt === newMsg.createdAt 
-            ? {...data, pending: false} 
+      setMessages(prev =>
+        prev.map(msg =>
+          msg.pending && msg.createdAt === newMsg.createdAt
+            ? {...data, pending: false}
             : msg
         )
       );
-      
-      // Emit socket event if socket is connected
       if (socketRef.current && socketRef.current.connected) {
         socketRef.current.emit("private_message", {
           from: senderId,
@@ -330,36 +241,31 @@ const ChatScreen = ({ currentUser, selectedUser, onBack, apiUrl }) => {
         });
       }
     } catch (error) {
-      console.error("Send error:", error);
       setError(`Failed to send message: ${error.message}`);
-      
-      // Mark as failed
-      setMessages(prev => 
-        prev.map(msg => 
-          msg.pending && msg.createdAt === newMsg.createdAt 
-            ? {...msg, pending: false, failed: true} 
+      setMessages(prev =>
+        prev.map(msg =>
+          msg.pending && msg.createdAt === newMsg.createdAt
+            ? {...msg, pending: false, failed: true}
             : msg
         )
       );
     }
   };
 
-  // Socket status indicator component
   const renderSocketStatus = () => {
     if (socketStatus === 'connected' || !useSocketIO) return null;
-    
     return (
       <div className={`text-sm rounded-md p-2 mb-4 flex items-center animate-pulse-slow ${
-        socketStatus === 'error' 
-          ? 'bg-red-900 bg-opacity-30 text-red-200' 
+        socketStatus === 'error'
+          ? 'bg-red-900 bg-opacity-30 text-red-200'
           : 'bg-yellow-900 bg-opacity-30 text-yellow-200'
       }`}>
         <div className={`w-2 h-2 rounded-full mr-2 ${
           socketStatus === 'error' ? 'bg-red-500' : 'bg-yellow-500'
         }`}></div>
         <span>
-          {socketStatus === 'error' 
-            ? 'Connection error. Trying to reconnect...' 
+          {socketStatus === 'error'
+            ? 'Connection error. Trying to reconnect...'
             : 'Connecting to chat server...'}
         </span>
       </div>
@@ -372,9 +278,8 @@ const ChatScreen = ({ currentUser, selectedUser, onBack, apiUrl }) => {
     <div className="w-full h-full flex flex-col bg-gradient-to-br from-cyan-900 via-gray-900 to-gray-800 animate-fade-in rounded-xl shadow-2xl">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-4 border-b border-gray-800 bg-gradient-to-r from-cyan-700 to-cyan-500 rounded-t-xl">
-        {/* Left side with back button and user info */}
         <div className="flex items-center">
-          <button 
+          <button
             className="mr-3 md:hidden text-white hover:text-cyan-200 transition"
             onClick={onBack}
           >
@@ -382,7 +287,6 @@ const ChatScreen = ({ currentUser, selectedUser, onBack, apiUrl }) => {
               <path d="M15 19l-7-7 7-7" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
           </button>
-          
           <img
             src={`https://ui-avatars.com/api/?name=${selectedUser.username}&background=22d3ee&color=fff`}
             alt={selectedUser.username}
@@ -395,9 +299,7 @@ const ChatScreen = ({ currentUser, selectedUser, onBack, apiUrl }) => {
             </span>
           </div>
         </div>
-
-        {/* Mobile button to show contacts */}
-        <button 
+        <button
           className="md:hidden p-2 rounded-full bg-cyan-600 hover:bg-cyan-700 text-white"
           onClick={onBack}
           aria-label="Show contacts"
@@ -410,24 +312,20 @@ const ChatScreen = ({ currentUser, selectedUser, onBack, apiUrl }) => {
           </svg>
         </button>
       </div>
-      
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-3 sm:px-4 py-4 sm:py-6 space-y-3 bg-gradient-to-b from-transparent to-gray-900">
-        {/* Socket status indicator */}
         {renderSocketStatus()}
-        
         {error && (
           <div className="bg-red-900 bg-opacity-50 border border-red-500 text-red-200 px-4 py-3 rounded mb-4 animate-fade-in">
             {error}
-            <button 
-              onClick={() => setError(null)} 
+            <button
+              onClick={() => setError(null)}
               className="ml-2 underline text-cyan-300 hover:text-cyan-200"
             >
               Dismiss
             </button>
           </div>
         )}
-        
         {loading ? (
           <div className="text-gray-400 text-center mt-10 animate-pulse-slow">
             <div className="inline-block p-2 bg-cyan-800 bg-opacity-30 rounded-lg">
@@ -437,37 +335,41 @@ const ChatScreen = ({ currentUser, selectedUser, onBack, apiUrl }) => {
         ) : messages.length === 0 ? (
           <div className="text-gray-400 text-center mt-10 animate-fade-in-slow">No previous messages</div>
         ) : (
-          messages.map((msg, idx) => (
-            <div
-              key={idx}
-              className={`flex ${
-                msg.sender === (currentUser._id || currentUser.id) ? "justify-end" : "justify-start"
-              } animate-slide-up`}
-            >
-              <div
-                className={`px-4 sm:px-5 py-2 sm:py-3 rounded-2xl max-w-[75%] sm:max-w-xs shadow-md ${
-                  msg.sender === (currentUser._id || currentUser.id)
-                    ? `bg-gradient-to-br from-purple-500 via-blue-500 to-teal-400 text-white rounded-br-none
-                       ${msg.pending ? 'opacity-50' : ''}
-                       ${msg.failed ? 'border-2 border-red-400' : ''}`
-                    : "bg-indigo-900 text-indigo-100 rounded-bl-none border border-blue-700"
-                }`}
-              >
-                {msg.text || msg.originalText}
-                <div className="text-xs text-indigo-300 mt-1 text-right flex justify-end items-center">
-                  {msg.failed && <span className="text-red-300 mr-1">Failed</span>}
-                  {msg.pending && <span className="mr-1">Sending...</span>}
-                  {(msg.createdAt || msg.timestamp)
-                    ? new Date(msg.createdAt || msg.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-                    : ""}
+          messages.map((msg, idx) => {
+            const isSender = msg.sender === (currentUser._id || currentUser.id);
+            return (
+              <div key={idx} className={`flex ${isSender ? "justify-end" : "justify-start"} animate-slide-up`}>
+                <div
+                  className={`px-4 sm:px-5 py-2 sm:py-3 rounded-2xl max-w-[75%] sm:max-w-xs shadow-md ${
+                    isSender
+                      ? `bg-gradient-to-br from-purple-500 via-blue-500 to-teal-400 text-white rounded-br-none
+                         ${msg.pending ? 'opacity-50' : ''}
+                         ${msg.failed ? 'border-2 border-red-400' : ''}`
+                      : "bg-indigo-900 text-indigo-100 rounded-bl-none border border-blue-700"
+                  }`}
+                >
+                  <div>
+                    {msg.text}
+                    {!isSender && msg.originalText && msg.text !== msg.originalText && (
+                      <div className="text-xs text-gray-400 mt-1 italic">
+                        (Original: {msg.originalText})
+                      </div>
+                    )}
+                  </div>
+                  <div className="text-xs text-indigo-300 mt-1 text-right flex justify-end items-center">
+                    {msg.failed && <span className="text-red-300 mr-1">Failed</span>}
+                    {msg.pending && <span className="mr-1">Sending...</span>}
+                    {(msg.createdAt || msg.timestamp)
+                      ? new Date(msg.createdAt || msg.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+                      : ""}
+                  </div>
                 </div>
               </div>
-            </div>
-          ))
+            );
+          })
         )}
         <div ref={messagesEndRef} />
       </div>
-      
       {/* Input */}
       <form
         onSubmit={handleSend}
@@ -493,7 +395,6 @@ const ChatScreen = ({ currentUser, selectedUser, onBack, apiUrl }) => {
           Send
         </button>
       </form>
-      
       {/* Animations */}
       <style>{`
         .animate-fade-in { animation: fadeIn 0.7s; }
