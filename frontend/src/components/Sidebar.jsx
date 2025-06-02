@@ -119,7 +119,7 @@ const Sidebar = ({
               />
             </svg>
             <span className="text-2xl font-bold text-white tracking-wide">
-              ChatApp
+              ChatSphere
             </span>
           </div>
           {/* Search Bar */}

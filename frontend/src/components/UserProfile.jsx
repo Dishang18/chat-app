@@ -3,11 +3,6 @@ import React, { useState, useEffect } from 'react';
 const LANGUAGES = [
   { code: 'en', name: 'English' },
   { code: 'hi', name: 'Hindi' },
-  { code: 'GUJ', name: 'Guajrati' },
-  { code: 'fr', name: 'French' },
-  { code: 'de', name: 'German' },
-  { code: 'zh', name: 'Chinese' },
-  // Add more as needed
 ];
 
 const ManAvatar = ({ size = 180 }) => (

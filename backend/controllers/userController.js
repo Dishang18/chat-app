@@ -4,6 +4,7 @@ import User from "../models/User.js";
 export const userController = {
   async getAllUsers(req, res) {
     try {
+      
       const users = await User.find({}, "username online profilepic").limit(10);
       res.status(200).json(users);
     } catch (err) {

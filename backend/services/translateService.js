@@ -9,5 +9,5 @@ export async function translateText(text, source, target) {
     target,
     format: "text"
   });
-  return res.data.translatedText;
+  return res.data.translatedText; 
 }

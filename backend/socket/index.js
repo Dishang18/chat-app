@@ -1,7 +1,9 @@
-import { Server } from 'socket.io';
-import { translateText } from '../services/translateService.js';
-import User from '../models/User.js';
-import axios from 'axios';
+import { Server } from "socket.io";
+import { translateText } from "../services/translateService.js";
+import User from "../models/User.js";
+import axios from "axios";
+import Message from "../models/Message.js";
+import Conversation from "../models/Conversation.js";
 
 const onlineUsers = new Map(); // userId -> {socketId, lastSeen}
 const cleanupInterval = 60000; // 1 minute
@@ -12,7 +14,10 @@ async function checkLibreTranslateConnection() {
     if (Array.isArray(res.data)) {
       console.log("LibreTranslate server is UP and reachable.");
     } else {
-      console.log("LibreTranslate server responded, but unexpected data:", res.data);
+      console.log(
+        "LibreTranslate server responded, but unexpected data:",
+        res.data
+      );
     }
   } catch (err) {
     console.error("Cannot connect to LibreTranslate server:", err.message);
@@ -24,52 +29,40 @@ const initializeSocket = (server) => {
     cors: {
       origin: ["http://localhost:5173", "http://localhost:3000"],
       methods: ["GET", "POST"],
-      credentials: true
+      credentials: true,
     },
     path: "/socket.io",
     pingTimeout: 60000,
     pingInterval: 25000,
     connectTimeout: 30000,
-    transports: ['polling', 'websocket']
+    transports: ["polling", "websocket"],
   });
 
   console.log("Socket.IO server initialized with path:", "/socket.io");
   checkLibreTranslateConnection();
 
-  setInterval(() => {
-    const now = Date.now();
-    for (const [userId, userInfo] of onlineUsers.entries()) {
-      const lastSeen = new Date(userInfo.lastSeen).getTime();
-      if (now - lastSeen > 5 * 60 * 1000) {
-        console.log(`Cleaning up stale connection for user ${userId}`);
-        onlineUsers.delete(userId);
-        io.emit('online_users', Array.from(onlineUsers.keys()));
-      }
-    }
-  }, cleanupInterval);
+  io.on("connection", (socket) => {
+    console.log("A user connected:", socket.id);
 
-  io.on('connection', (socket) => {
-    console.log('A user connected:', socket.id);
-
-    socket.on('user_connected', (userId) => {
+    socket.on("user_connected", (userId) => {
       if (!userId) return;
       onlineUsers.set(userId, {
         socketId: socket.id,
-        lastSeen: new Date().toISOString()
+        lastSeen: new Date().toISOString(),
       });
-      socket.emit('online_users', Array.from(onlineUsers.keys()));
-      socket.broadcast.emit('user_online', userId);
+      socket.emit("online_users", Array.from(onlineUsers.keys()));
+      socket.broadcast.emit("user_online", userId);
       socket.join(`user:${userId}`);
     });
 
-    socket.on('heartbeat', (userId) => {
+    socket.on("heartbeat", (userId) => {
       if (userId && onlineUsers.has(userId)) {
         onlineUsers.get(userId).lastSeen = new Date().toISOString();
       }
     });
 
     // --- MAIN MESSAGE HANDLER ---
-    socket.on('private_message', async (messageData) => {
+    socket.on("private_message", async (messageData) => {
       try {
         let sender, receiver, message, conversationId;
 
@@ -80,15 +73,18 @@ const initializeSocket = (server) => {
         } else if (messageData.sender && messageData.receiver) {
           sender = messageData.sender;
           receiver = messageData.receiver;
-          message = messageData.originalText || messageData.text || messageData.message;
+          message =
+            messageData.originalText || messageData.text || messageData.message;
         } else {
-          socket.emit('error_message', { error: 'Invalid message format' });
+          socket.emit("error_message", { error: "Invalid message format" });
           return;
         }
 
         conversationId = messageData.conversationId;
         if (!sender || !receiver || !message) {
-          socket.emit('error_message', { error: 'Missing required message fields' });
+          socket.emit("error_message", {
+            error: "Missing required message fields",
+          });
           return;
         }
 
@@ -100,11 +96,11 @@ const initializeSocket = (server) => {
           if (
             receiverUser &&
             receiverUser.preferredLanguage &&
-            receiverUser.preferredLanguage !== 'en'
+            receiverUser.preferredLanguage !== "en"
           ) {
             translatedMessage = await translateText(
               message,
-              'en',
+              "en",
               receiverUser.preferredLanguage
             );
             console.log(
@@ -112,20 +108,37 @@ const initializeSocket = (server) => {
             );
           }
         } catch (err) {
-          console.error('Translation failed:', err.message);
+          console.error("Translation failed:", err.message);
           translatedMessage = message; // fallback
         }
 
-        // --- STORE BOTH VERSIONS IN DB (pseudo code, replace with your DB logic) ---
-        // await Message.create({
-        //   from: sender,
-        //   to: receiver,
-        //   conversationId,
-        //   originalText: message,
-        //   translatedText: translatedMessage,
-        //   createdAt: new Date()
-        // });
+        const savedMessage = await Message.create({
+          sender,
+          receiver,
+          from: sender,
+          to: receiver,
+          conversationId,
+          originalText: message,
+          translatedText: translatedMessage,
+          originalLanguage: "en", // or detect dynamically
+          translatedLanguage: receiverUser?.preferredLanguage || "en",
+          createdAt: new Date(),
+        });
+        console.log("Message saved to database:", {
+          sender,
+          receiver,
+          conversationId,
+          originalText: message,
+          translatedText: translatedMessage,
+        });
 
+        await Conversation.findByIdAndUpdate(conversationId, {
+          $set: {
+            lastMessage: savedMessage._id,
+            updatedAt: new Date(),
+          },
+          $addToSet: { participants: sender, participants: receiver },
+        });
         // --- EMIT TO RECEIVER (translated) ---
         const receiverMsg = {
           _id: messageData._id || `temp-${Date.now()}`,
@@ -137,36 +150,78 @@ const initializeSocket = (server) => {
           text: translatedMessage,
           conversationId,
           createdAt: messageData.createdAt || new Date().toISOString(),
-          timestamp: messageData.timestamp || new Date().toISOString()
+          timestamp: messageData.timestamp || new Date().toISOString(),
         };
         const targetUserInfo = onlineUsers.get(receiver);
         if (targetUserInfo) {
-          io.to(targetUserInfo.socketId).emit('private_message', receiverMsg);
-          io.to(`user:${receiver}`).emit('private_message', receiverMsg);
+          io.to(targetUserInfo.socketId).emit("private_message", receiverMsg);
+          io.to(`user:${receiver}`).emit("private_message", receiverMsg);
         }
-
-        // --- EMIT TO SENDER (original) ---
-        const senderMsg = {
-          ...receiverMsg,
-          text: message,
-          originalText: undefined // or message, if you want
-        };
-        io.to(socket.id).emit('private_message', senderMsg);
-
         // Optionally: emit delivery status
-        socket.emit('message_delivered', {
+        socket.emit("message_delivered", {
           messageId: receiverMsg._id,
           receiver,
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
+        });
+      } catch (error) {
+        console.error("Error processing private message:", error);
+        socket.emit("error_message", {
+          error: "Server error processing message",
+        });
+      }
+    });
+    socket.on("image_message", async (msg) => {
+      try {
+        // msg should be the message object returned from /messages/image POST
+        const { receiver } = msg;
+        const targetUserInfo = onlineUsers.get(receiver);
+        if (targetUserInfo) {
+          io.to(targetUserInfo.socketId).emit("private_message", {
+            ...msg,
+            type: "image",
+          });
+        }
+        // Optionally emit to sender for instant UI update
+        socket.emit("private_message", { ...msg, type: "image" });
+      } catch (err) {
+        console.error("Error emitting image message:", err);
+      }
+    });
+    // Mark messages as seen
+    // ...existing code...
+    socket.on("mark_seen", async ({ conversationId, userId }) => {
+      try {
+        // Update all messages in this conversation sent to this user as seen
+        await Message.updateMany(
+          { conversationId, receiver: userId, seen: false },
+          { $set: { seen: true } }
+        );
+        // Optionally update Conversation's readBy
+        await Conversation.findByIdAndUpdate(conversationId, {
+          $addToSet: { readBy: userId },
         });
 
-      } catch (error) {
-        console.error('Error processing private message:', error);
-        socket.emit('error_message', { error: 'Server error processing message' });
+        // Find the conversation to get both participants
+        const conversation = await Conversation.findById(conversationId);
+        if (conversation && conversation.participants) {
+          // Find the other user in the conversation
+          const otherUserId = conversation.participants.find(
+            (id) => id.toString() !== userId.toString()
+          );
+          if (otherUserId) {
+            // Notify the other user (the sender) that messages are seen
+            io.to(`user:${otherUserId}`).emit("messages_seen", {
+              conversationId,
+              userId,
+            });
+          }
+        }
+      } catch (err) {
+        console.error("Error marking messages as seen:", err);
       }
     });
 
-    socket.on('disconnect', (reason) => {
+    socket.on("disconnect", (reason) => {
       let disconnectedUserId = null;
       for (let [userId, userInfo] of onlineUsers.entries()) {
         if (userInfo.socketId === socket.id) {
@@ -179,19 +234,22 @@ const initializeSocket = (server) => {
           const userInfo = onlineUsers.get(disconnectedUserId);
           if (userInfo && userInfo.socketId === socket.id) {
             onlineUsers.delete(disconnectedUserId);
-            io.emit('online_users', Array.from(onlineUsers.keys()));
-            io.emit('user_offline', disconnectedUserId);
+            io.emit("online_users", Array.from(onlineUsers.keys()));
+            io.emit("user_offline", disconnectedUserId);
           }
         }, 5000);
       }
     });
 
-    socket.on('error', (error) => {
-      console.error('Socket error:', error);
-      socket.emit('error_message', { error: 'Socket error occurred' });
+    socket.on("error", (error) => {
+      console.error("Socket error:", error);
+      socket.emit("error_message", { error: "Socket error occurred" });
     });
 
-    socket.emit('welcome', { message: 'Connected to chat server', socketId: socket.id });
+    socket.emit("welcome", {
+      message: "Connected to chat server",
+      socketId: socket.id,
+    });
   });
 
   io.getOnlineUsers = () => Array.from(onlineUsers.keys());

@@ -29,7 +29,7 @@ const Dashboard = () => {
     };
     
     window.addEventListener('resize', handleResize);
-    handleResize(); // Initial check
+    handleResize(); 
     return () => window.removeEventListener('resize', handleResize);
   }, [selectedUser]);
 
@@ -62,9 +62,19 @@ const Dashboard = () => {
       .finally(() => setLoading(false));
   }, [apiUrl]);
 
+  useEffect(() => {
+  if (users.length === 0) return;
+  const savedUserId = localStorage.getItem('selectedUser');
+  if (savedUserId) {
+    const found = users.find(u => (u._id || u.id) === savedUserId);
+    if (found) setSelectedUser(found);
+  }
+}, [users]);
+
   const handleLogout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
+    localStorage.removeItem('selectedUser');
     navigate('/login');
   };
 
@@ -74,6 +84,7 @@ const Dashboard = () => {
     if (isMobile) {
       setSidebarOpen(false);
     }
+    localStorage.setItem('selectedUser', user._id || user.id);
   };
 
   // Handle back action from ChatScreen
@@ -81,6 +92,7 @@ const Dashboard = () => {
     setSelectedUser(null);
     // Show sidebar when going back to user list
     setSidebarOpen(true);
+    localStorage.removeItem('selectedUser');
   };
 
   if (loading || !user) {
@@ -108,7 +120,7 @@ const Dashboard = () => {
       </div>
 
       {/* Main Content - Full screen on mobile when chat is active */}
-      <main className={`flex-1 flex flex-col items-center justify-center px-2 h-screen ${isMobile && sidebarOpen ? 'hidden' : 'block'}`}>
+      <main className={`flex-1 flex flex-col items-center justify-center px-2 h-screen ${isMobile && sidebarOpen ? 'hidden' : 'flex'}`}>
         {selectedUser ? (
           <ChatScreen
             currentUser={user}

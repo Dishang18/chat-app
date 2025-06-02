@@ -1,87 +1,102 @@
-import React, { useState } from 'react';
-import axios from 'axios';
-import { useNavigate, Link } from 'react-router-dom';
+import React, { useState, useEffect } from "react";
+import axios from "axios";
+import { useNavigate, Link, Navigate } from "react-router-dom";
+import ThreeScene from "./ThreeScene"; // <-- Import your Three.js background
 
 const Login = () => {
   const navigate = useNavigate();
+  const token = localStorage.getItem("token");
+  if (token) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
   const [formData, setFormData] = useState({
-    email: '',
-    password: ''
+    email: "",
+    password: "",
   });
-  
+
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
-  
+
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData({
       ...formData,
-      [name]: value
+      [name]: value,
     });
-    
+
     if (errors[name]) {
       setErrors({
         ...errors,
-        [name]: ''
+        [name]: "",
       });
     }
   };
-  
+
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+    if (token) {
+      navigate("/dashboard");
+    }
+  }, [navigate]);
+
   const validateForm = () => {
     const newErrors = {};
-    
+
     if (!formData.email.trim()) {
-      newErrors.email = 'Email is required';
+      newErrors.email = "Email is required";
     }
-    
+
     if (!formData.password) {
-      newErrors.password = 'Password is required';
+      newErrors.password = "Password is required";
     }
-    
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
-  
+
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
+
     if (validateForm()) {
       setLoading(true);
       try {
         const API_URL = import.meta.env.VITE_BACKEND_URL;
-        console.log('🔑 API URL:', API_URL);
-        console.log('🔑 Attempting login with:', { email: formData.email });
-        
+        console.log("🔑 API URL:", API_URL);
+        console.log("🔑 Attempting login with:", { email: formData.email });
+
         const response = await axios.post(`${API_URL}/auth/login`, formData);
-        
-        console.log('✅ Login successful!');
-        console.log('📦 Response:', response.data);
-        
-        localStorage.setItem('token', response.data.token);
-        localStorage.setItem('user', JSON.stringify(response.data.user));
-        
-        navigate('/dashboard');
+
+        console.log("✅ Login successful!");
+        console.log("📦 Response:", response.data);
+
+        localStorage.setItem("token", response.data.token);
+        localStorage.setItem("user", JSON.stringify(response.data.user));
+
+        navigate("/dashboard");
       } catch (error) {
-        console.error('❌ Login Error:', error);
-        
+        console.error("❌ Login Error:", error);
+
         if (error.response) {
-          console.error('🚫 Error response data:', error.response.data);
-          console.error('🚫 Error status:', error.response.status);
-          
+          console.error("🚫 Error response data:", error.response.data);
+          console.error("🚫 Error status:", error.response.status);
+
           if (error.response.status === 404) {
-            setErrors({ email: 'User not found' });
+            setErrors({ email: "User not found" });
           } else if (error.response.status === 401) {
-            setErrors({ password: 'Invalid credentials' });
+            setErrors({ password: "Invalid credentials" });
           } else if (error.response.data.message) {
             setErrors({ general: error.response.data.message });
           } else {
             setErrors({ general: `Server error: ${error.response.status}` });
           }
         } else if (error.request) {
-          console.error('🚫 No response received:', error.request);
-          setErrors({ general: 'No response from server. Please check your connection.' });
+          console.error("🚫 No response received:", error.request);
+          setErrors({
+            general: "No response from server. Please check your connection.",
+          });
         } else {
-          console.error('🚫 Error message:', error.message);
+          console.error("🚫 Error message:", error.message);
           setErrors({ general: `Request error: ${error.message}` });
         }
       } finally {
@@ -89,13 +104,16 @@ const Login = () => {
       }
     }
   };
-  
+
   return (
-    <div className="min-h-screen relative bg-gradient-to-br from-blue-600 to-blue-900 flex items-center justify-center p-4">
-      {/* Background Pattern */}
-      <div className="absolute inset-0 bg-[url('https://images.pexels.com/photos/2882566/pexels-photo-2882566.jpeg')] bg-cover opacity-10"></div>
-      
-      <div className="w-full max-w-md relative">
+    <div className="min-h-screen relative flex items-center justify-center p-4 overflow-hidden">
+      {/* Animated Three.js Background */}
+      <div className="absolute inset-0 z-0 pointer-events-none">
+        <ThreeScene />
+      </div>
+
+      {/* Login Form Content */}
+      <div className="w-full max-w-md relative z-10">
         {/* Logo and Heading */}
         <div className="text-center mb-8">
           <div className="inline-block p-3 bg-white rounded-full shadow-xl mb-4">
@@ -105,7 +123,9 @@ const Login = () => {
               className="w-16 h-16 rounded-full object-cover"
             />
           </div>
-          <h2 className="text-4xl font-bold text-white mb-2">Welcome Back!</h2>
+          <h2 className="text-4xl font-bold text-white mb-2">
+            Welcome Back!
+          </h2>
           <p className="text-blue-100">Sign in to continue chatting</p>
         </div>
 
@@ -134,7 +154,9 @@ const Login = () => {
               >
                 Email Address
               </label>
-              {errors.email && <p className="mt-1 text-sm text-red-600">{errors.email}</p>}
+              {errors.email && (
+                <p className="mt-1 text-sm text-red-600">{errors.email}</p>
+              )}
             </div>
 
             <div className="relative">
@@ -153,11 +175,16 @@ const Login = () => {
               >
                 Password
               </label>
-              {errors.password && <p className="mt-1 text-sm text-red-600">{errors.password}</p>}
+              {errors.password && (
+                <p className="mt-1 text-sm text-red-600">{errors.password}</p>
+              )}
             </div>
 
             <div className="flex items-center justify-between text-sm">
-              <Link to="/forgot-password" className="text-blue-600 hover:text-blue-700 font-medium">
+              <Link
+                to="/forgot-password"
+                className="text-blue-600 hover:text-blue-700 font-medium"
+              >
                 Forgot password?
               </Link>
             </div>
@@ -169,22 +196,41 @@ const Login = () => {
             >
               {loading ? (
                 <span className="flex items-center">
-                  <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  <svg
+                    className="animate-spin -ml-1 mr-3 h-5 w-5 text-white"
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                  >
+                    <circle
+                      className="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                    ></circle>
+                    <path
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                    ></path>
                   </svg>
                   Signing in...
                 </span>
               ) : (
-                'Sign In'
+                "Sign In"
               )}
             </button>
           </form>
-          
+
           <div className="mt-6 text-center">
             <p className="text-gray-600">
-              Don't have an account?{' '}
-              <Link to="/signup" className="font-medium text-blue-600 hover:text-blue-700 transition-colors">
+              Don't have an account?{" "}
+              <Link
+                to="/signup"
+                className="font-medium text-blue-600 hover:text-blue-700 transition-colors"
+              >
                 Sign up
               </Link>
             </p>

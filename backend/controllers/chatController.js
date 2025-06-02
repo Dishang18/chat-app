@@ -31,6 +31,10 @@ export const getMessages = async (req, res) => {
 // Find or create a conversation between two users
 export const findOrCreateConversation = async (req, res) => {
   const { user1, user2 } = req.body;
+  console.log("Finding or creating conversation between:", user1, user2);
+  if (!user1 || !user2) { 
+    return res.status(400).json({ error: "Both user1 and user2 are required" });
+  }
   try {
     let conversation = await Conversation.findOne({
       participants: { $all: [user1, user2], $size: 2 }
@@ -40,6 +44,8 @@ export const findOrCreateConversation = async (req, res) => {
       conversation = new Conversation({ participants: [user1, user2] });
       await conversation.save();
     }
+    console.log("Conversation found or created:", conversation._id);
+    console.log("Participants:", conversation.participants);
     res.json(conversation);
   } catch (err) {
     res.status(500).json({ error: "Failed to find or create conversation" });
@@ -130,8 +136,70 @@ export const getMessagesBetweenUsers = async (req, res) => {
         { sender: user2, receiver: user1 }
       ]
     }).sort({ timestamp: 1 });
-    res.json(messages);
+
+    // Add this mapping to ensure type is set for image messages
+    const mapped = messages.map(msg => {
+      const obj = msg.toObject();
+      if (obj.image && obj.image.id) {
+        obj.type = "image";
+      }
+      return obj;
+    });
+
+    res.json(mapped);
   } catch (err) {
     res.status(500).json({ error: "Failed to fetch messages" });
+  }
+};
+
+export const clearChat = async (req, res) => {
+  try {
+    const { conversationId } = req.body;
+    if (!conversationId) return res.status(400).json({ error: "conversationId is required" });
+    // Make sure to convert conversationId to ObjectId
+    await Message.deleteMany({ conversationId });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to clear chat" });
+  }
+};
+
+export const uploadImageMessage = async (req, res) => {
+  try {
+    const { conversationId, sender, receiver } = req.body;
+    if (!req.file || !conversationId || !sender || !receiver) {
+      return res.status(400).json({ error: "Missing required fields" });
+    }
+
+    const message = await Message.create({
+      conversationId,
+      sender,
+      receiver,
+      originalText: '[Image]',
+      translatedText: '',
+      originalLanguage: 'en',
+      translatedLanguage: '',
+      timestamp: Date.now(),
+      image: {
+        id: req.file.id,
+        filename: req.file.filename,
+        contentType: req.file.mimetype
+      }
+    });
+
+    await Conversation.findByIdAndUpdate(conversationId, {
+      lastMessage: message._id,
+      updatedAt: Date.now(),
+      $addToSet: { participants: [sender, receiver] }
+    });
+
+    res.json({
+      success: true,
+      message: "Image uploaded and message saved",
+      data: message
+    });
+  } catch (err) {
+    console.error("Image upload error:", err);
+    res.status(500).json({ error: "Failed to upload image" });
   }
 };
