@@ -15,6 +15,11 @@ const messageSchema = new mongoose.Schema({
     id: { type: mongoose.Schema.Types.ObjectId },
     filename: { type: String },
     contentType: { type: String }
+  },
+  audio:{
+    id: { type: mongoose.Schema.Types.ObjectId },
+    filename: { type: String },
+    contentType: { type: String }
   }
 });
 

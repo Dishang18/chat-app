@@ -203,3 +203,65 @@ export const uploadImageMessage = async (req, res) => {
     res.status(500).json({ error: "Failed to upload image" });
   }
 };
+
+export const sendAudioMessage = async (req, res) => {
+  try {
+    const { conversationId, sender, receiver } = req.body;
+    if (!req.file) return res.status(400).json({ error: "No audio file uploaded" });
+
+    const message = await Message.create({
+      conversationId,
+      sender,
+      receiver,
+      originalText: '[Audio]',
+      translatedText: '',
+      originalLanguage: 'en',
+      translatedLanguage: '',
+      timestamp: Date.now(),
+      type: 'audio',
+      audio: {
+        id: req.file.id,
+        filename: req.file.filename,
+        contentType: req.file.mimetype
+      }
+    });
+    res.json(message);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to send audio message" });
+  }
+};
+
+// Get all users who have chatted with current user, with unseen count
+export const getChatUsersWithUnseen = async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    const conversations = await Conversation.find({ participants: userId }).populate('participants', 'username profilepic');
+    const userMap = {};
+
+    for (const conv of conversations) {
+      const otherUser = conv.participants.find(p => p._id.toString() !== userId);
+      if (!otherUser) continue;
+      const unseenCount = await Message.countDocuments({
+        conversationId: conv._id,
+        receiver: userId,
+        seen: false
+      });
+      // If user already exists, sum unseen
+      if (userMap[otherUser._id]) {
+        userMap[otherUser._id].unseen += unseenCount;
+      } else {
+        userMap[otherUser._id] = {
+          _id: otherUser._id,
+          username: otherUser.username,
+          profilepic: otherUser.profilepic,
+          unseen: unseenCount
+        };
+      }
+    }
+
+    res.json(Object.values(userMap));
+  } catch (err) {
+    console.error("Error in getChatUsersWithUnseen:", err);
+    res.status(500).json({ error: err.message || "Failed to fetch chat users" });
+  }
+};

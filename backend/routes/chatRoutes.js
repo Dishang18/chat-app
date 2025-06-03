@@ -7,6 +7,8 @@ import {
   sendMessage,
   getMessagesBetweenUsers,clearChat as clearchat,
   uploadImageMessage
+, sendAudioMessage,
+  getChatUsersWithUnseen
 } from '../controllers/chatController.js';
 import upload from '../middlewares/upload.js';
 
@@ -31,6 +33,12 @@ router.post(
   uploadImageMessage
 );
 
+router.post(
+  '/messages/audio',
+  ...upload.audio.single('audio'),
+  sendAudioMessage
+);
+
 router.get('/images/:id', async (req, res) => {
   try {
     const db = mongoose.connection.db;
@@ -48,5 +56,7 @@ router.get('/images/:id', async (req, res) => {
     res.status(500).json({ error: "Failed to fetch image" });
   }
 });
+
+router.get('/chat-users/:userId', getChatUsersWithUnseen);
 
 export default router;

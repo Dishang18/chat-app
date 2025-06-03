@@ -1,11 +1,9 @@
 import React, { useState, useRef, useEffect } from "react";
 import { io } from "socket.io-client";
 import UserProfile from "./UserProfile";
-
-
+// Make sure you have this or replace with your avatar component
 
 const Sidebar = ({
-  users,
   user,
   onLogout,
   sidebarOpen,
@@ -13,14 +11,14 @@ const Sidebar = ({
   onUserClick,
   setUser,
 }) => {
-  console.log("Sidebar rendered. user:", user);
-
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [showProfile, setShowProfile] = useState(false);
-  const [photoModalUrl, setPhotoModalUrl] = useState(null); // string | null
-  const [photoModalIsSvg, setPhotoModalIsSvg] = useState(false); // true if SVG avatar
-  const [userStatus, setUserStatus] = useState({}); // Track online/offline status
+  const [photoModalUrl, setPhotoModalUrl] = useState(null);
+  const [photoModalIsSvg, setPhotoModalIsSvg] = useState(false);
+  const [userStatus, setUserStatus] = useState({});
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [chatUsers, setChatUsers] = useState([]);
 
   const dropdownRef = useRef();
 
@@ -39,14 +37,9 @@ const Sidebar = ({
 
   // Socket.io setup for online/offline status
   useEffect(() => {
-    console.log("Sidebar socket useEffect running. user:", user, "users:", users);
-
-    // Only connect if user is loaded
     if (!user || (!user.id && !user._id)) {
-      console.log("Sidebar: No user loaded, not connecting socket");
       return;
     }
-
     const socket = io(import.meta.env.VITE_BACKEND_URL, {
       query: { userId: user.id || user._id },
     });
@@ -54,13 +47,9 @@ const Sidebar = ({
     socket.emit("user_connected", user.id || user._id);
 
     socket.on("online_users", (onlineUserIds) => {
-      // Convert all IDs to strings for comparison
       const onlineIds = onlineUserIds.map(String);
-      console.log("onlineUserIds (as strings):", onlineIds);
-      console.log("users in sidebar (as strings):", users.map((u) => String(u._id)));
-
       setUserStatus(
-        users.reduce((acc, u) => {
+        chatUsers.reduce((acc, u) => {
           const idStr = String(u._id);
           acc[idStr] = onlineIds.includes(idStr);
           return acc;
@@ -76,17 +65,55 @@ const Sidebar = ({
       setUserStatus((prev) => ({ ...prev, [String(userId)]: false }));
     });
 
-    socket.on("connect", () => {
-      console.log("Socket connected:", socket.id);
+    // Listen for new message event
+    socket.on("new_message", (msg) => {
+      // Only increment unseen if the message is for the current user and not in the currently open chat
+      if (msg.receiver === (user._id || user.id)) {
+        setChatUsers((prev) => {
+          return prev.map((u) =>
+            u._id === msg.sender
+              ? { ...u, unseen: (u.unseen || 0) + 1 }
+              : u
+          );
+        });
+      }
     });
-    socket.on("disconnect", () => {
-      console.log("Socket disconnected");
+
+    // Listen for messages seen event
+    socket.on("messages_seen", ({ conversationId, userId }) => {
+      // If current user is the receiver, reset unseen count for that user
+      if (userId === (user._id || user.id)) {
+        setChatUsers((prev) =>
+          prev.map((u) =>
+            u._id === msg.sender ? { ...u, unseen: 0 } : u
+          )
+        );
+      }
     });
 
     return () => socket.disconnect();
-  }, [user, users]);
+  }, [user, chatUsers]);
 
-  const filteredUsers = users.filter((u) =>
+  // Fetch chat users with unseen count
+  useEffect(() => {
+    if (!user || (!user.id && !user._id)) return;
+    fetch(
+      `${import.meta.env.VITE_BACKEND_URL}/api/chat-users/${
+        user._id || user.id
+      }`
+    )
+      .then((res) => res.json())
+      .then((data) => setChatUsers(data || []));
+  }, [user]);
+
+  // Sort: unseen users first, then others
+  const sortedUsers = [...chatUsers].sort((a, b) => {
+    if (a.unseen > 0 && b.unseen === 0) return -1;
+    if (b.unseen > 0 && a.unseen === 0) return 1;
+    return 0;
+  });
+
+  const filteredUsers = sortedUsers.filter((u) =>
     u.username.toLowerCase().includes(search.toLowerCase())
   );
 
@@ -141,7 +168,7 @@ const Sidebar = ({
             )}
             {filteredUsers.map((u) => (
               <li
-                key={u._id || u.id}
+                key={u._id}
                 className="flex items-center px-6 py-3 hover:bg-gray-800 cursor-pointer transition"
                 onClick={() => {
                   if (onUserClick) onUserClick(u);
@@ -178,15 +205,21 @@ const Sidebar = ({
                   {/* Online/offline dot at bottom right */}
                   <span
                     className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-gray-950 ${
-                      userStatus[String(u._id)] ? 'bg-green-400' : 'bg-gray-400'
+                      userStatus[String(u._id)] ? "bg-green-400" : "bg-gray-400"
                     }`}
-                    title={userStatus[String(u._id)] ? 'Online' : 'Offline'}
+                    title={userStatus[String(u._id)] ? "Online" : "Offline"}
                   />
                 </span>
-                <span className="text-gray-200 font-medium">
+                <span className="text-gray-200 font-medium flex-1">
                   {u.username}
                   {u.id === user.id || u._id === user.id ? " (You)" : ""}
                 </span>
+                {/* Unseen badge on the right side of the row */}
+                {u.unseen > 0 && (
+                  <span className="ml-2 bg-red-600 text-white text-xs font-bold px-2 py-0.5 rounded-full">
+                    {u.unseen}
+                  </span>
+                )}
               </li>
             ))}
           </ul>
@@ -207,7 +240,7 @@ const Sidebar = ({
             {/* Always visible logout button with icon */}
             <button
               className="pl-30 p-2 rounded-full hover:bg-grey-800 transition"
-              onClick={onLogout}
+              onClick={() => setShowLogoutConfirm(true)}
               title="Logout"
             >
               <svg
@@ -243,7 +276,7 @@ const Sidebar = ({
                 </button>
                 <button
                   className="w-36 px-4 py-2 rounded-full bg-gray-700 text-red-400 font-semibold shadow hover:bg-gray-600 transition flex items-center justify-center gap-2"
-                  onClick={onLogout}
+                  onClick={() => setShowLogoutConfirm(true)}
                 >
                   <svg
                     width="20"
@@ -296,6 +329,32 @@ const Sidebar = ({
             >
               ✕
             </button>
+          </div>
+        </div>
+      )}
+      {/* Logout Confirmation Modal */}
+      {showLogoutConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-60">
+          <div className="bg-gray-900 rounded-xl shadow-xl p-6 w-80 max-w-full border border-cyan-700">
+            <h2 className="text-lg font-semibold text-white mb-3">Logout</h2>
+            <p className="text-gray-200 mb-5">Are you sure you want to logout?</p>
+            <div className="flex justify-end space-x-3">
+              <button
+                className="px-4 py-2 rounded bg-gray-700 text-gray-200 hover:bg-gray-600"
+                onClick={() => setShowLogoutConfirm(false)}
+              >
+                Cancel
+              </button>
+              <button
+                className="px-4 py-2 rounded bg-red-600 text-white hover:bg-red-700"
+                onClick={() => {
+                  setShowLogoutConfirm(false);
+                  onLogout();
+                }}
+              >
+                Logout
+              </button>
+            </div>
           </div>
         </div>
       )}

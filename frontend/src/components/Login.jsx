@@ -17,6 +17,7 @@ const Login = () => {
 
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -62,25 +63,14 @@ const Login = () => {
       setLoading(true);
       try {
         const API_URL = import.meta.env.VITE_BACKEND_URL;
-        console.log("🔑 API URL:", API_URL);
-        console.log("🔑 Attempting login with:", { email: formData.email });
-
         const response = await axios.post(`${API_URL}/auth/login`, formData);
-
-        console.log("✅ Login successful!");
-        console.log("📦 Response:", response.data);
 
         localStorage.setItem("token", response.data.token);
         localStorage.setItem("user", JSON.stringify(response.data.user));
 
         navigate("/dashboard");
       } catch (error) {
-        console.error("❌ Login Error:", error);
-
         if (error.response) {
-          console.error("🚫 Error response data:", error.response.data);
-          console.error("🚫 Error status:", error.response.status);
-
           if (error.response.status === 404) {
             setErrors({ email: "User not found" });
           } else if (error.response.status === 401) {
@@ -91,12 +81,10 @@ const Login = () => {
             setErrors({ general: `Server error: ${error.response.status}` });
           }
         } else if (error.request) {
-          console.error("🚫 No response received:", error.request);
           setErrors({
             general: "No response from server. Please check your connection.",
           });
         } else {
-          console.error("🚫 Error message:", error.message);
           setErrors({ general: `Request error: ${error.message}` });
         }
       } finally {
@@ -161,7 +149,7 @@ const Login = () => {
 
             <div className="relative">
               <input
-                type="password"
+                type={showPassword ? "text" : "password"}
                 id="password"
                 name="password"
                 value={formData.password}
@@ -175,6 +163,18 @@ const Login = () => {
               >
                 Password
               </label>
+              <button
+                type="button"
+                className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400"
+                tabIndex={-1}
+                onClick={() => setShowPassword((v) => !v)}
+              >
+                {showPassword ? (
+                  <svg width="22" height="22" fill="none" viewBox="0 0 24 24"><path d="M17.94 17.94A10.06 10.06 0 0 1 12 19c-5 0-9.27-3.11-11-7.5a11.62 11.62 0 0 1 4.06-5.16M9.53 9.53A3.5 3.5 0 0 1 12 8.5a3.5 3.5 0 0 1 3.5 3.5c0 .47-.09.92-.24 1.34M3 3l18 18" stroke="#888" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                ) : (
+                  <svg width="22" height="22" fill="none" viewBox="0 0 24 24"><ellipse cx="12" cy="12" rx="10" ry="7" stroke="#888" strokeWidth="2"/><circle cx="12" cy="12" r="3" stroke="#888" strokeWidth="2"/></svg>
+                )}
+              </button>
               {errors.password && (
                 <p className="mt-1 text-sm text-red-600">{errors.password}</p>
               )}

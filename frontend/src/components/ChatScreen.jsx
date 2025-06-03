@@ -11,6 +11,12 @@ const ChatScreen = ({ currentUser, selectedUser, onBack, apiUrl }) => {
   const [socketStatus, setSocketStatus] = useState('disconnected');
   const [useSocketIO, setUseSocketIO] = useState(true);
   const [showClearDialog, setShowClearDialog] = useState(false);
+
+  // Audio recording state
+  const [recording, setRecording] = useState(false);
+  const [mediaRecorder, setMediaRecorder] = useState(null);
+  const [audioChunks, setAudioChunks] = useState([]);
+
   const messagesEndRef = useRef(null);
   const socketRef = useRef();
   const reconnectAttempts = useRef(0);
@@ -105,7 +111,8 @@ const ChatScreen = ({ currentUser, selectedUser, onBack, apiUrl }) => {
             timestamp: message.timestamp || message.createdAt || new Date().toISOString(),
             conversationId: message.conversationId,
             type: message.type,
-            image: message.image
+            image: message.image,
+            audio: message.audio
           };
 
           setMessages(prevMessages => {
@@ -130,6 +137,11 @@ const ChatScreen = ({ currentUser, selectedUser, onBack, apiUrl }) => {
             return [...prevMessages, formattedMessage];
           });
         }
+      });
+
+      // Audio message real-time
+      socketRef.current.on("audio_message", (message) => {
+        setMessages(prev => [...prev, { ...message, type: "audio" }]);
       });
 
       const handleVisibilityChange = () => {
@@ -186,6 +198,7 @@ const ChatScreen = ({ currentUser, selectedUser, onBack, apiUrl }) => {
             text: isSender ? msg.originalText : (msg.translatedText || msg.text),
             seen: msg.seen || false,
             image: msg.image || null,
+            audio: msg.audio || null,
             type: msg.type
           };
         });
@@ -216,6 +229,7 @@ const ChatScreen = ({ currentUser, selectedUser, onBack, apiUrl }) => {
             text: isSender ? msg.originalText : (msg.translatedText || msg.text),
             seen: msg.seen || false,
             image: msg.image || null,
+            audio: msg.audio || null,
             type: msg.type,
           };
         });
@@ -388,11 +402,68 @@ const ChatScreen = ({ currentUser, selectedUser, onBack, apiUrl }) => {
       setError("Failed to upload image.");
     }
   };
-  const handleAudioUpload = (e) => {
+
+  const handleAudioUpload = async (e) => {
     const file = e.target.files[0];
-    if (file) {
-      // TODO: Implement audio upload logic
-      alert("Audio selected: " + file.name);
+    if (!file || !conversationId) return;
+    const senderId = currentUser?._id || currentUser?.id;
+    const receiverId = selectedUser?._id || selectedUser?.id;
+    if (!senderId || !receiverId) {
+      setError("Invalid user information. Please refresh the page.");
+      return;
+    }
+    const formData = new FormData();
+    formData.append("audio", file);
+    formData.append("conversationId", conversationId);
+    formData.append("sender", senderId);
+    formData.append("receiver", receiverId);
+
+    try {
+      const res = await fetch(`${apiUrl}/api/messages/audio`, {
+        method: "POST",
+        body: formData,
+      });
+      if (!res.ok) throw new Error("Failed to upload audio");
+      const data = await res.json();
+      setMessages((prev) => [...prev, { ...data, type: "audio" }]);
+      // Optionally emit socket event here
+      if (socketRef.current && socketRef.current.connected) {
+        socketRef.current.emit("audio_message", { ...data, type: "audio" });
+      }
+    } catch (err) {
+      setError("Failed to upload audio.");
+    }
+  };
+
+  // --- AUDIO RECORDING HANDLERS ---
+  const startRecording = async () => {
+    if (!navigator.mediaDevices) {
+      setError("Audio recording not supported in this browser.");
+      return;
+    }
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const recorder = new window.MediaRecorder(stream);
+    setMediaRecorder(recorder);
+    setAudioChunks([]);
+    recorder.start();
+    setRecording(true);
+
+    recorder.ondataavailable = (e) => {
+      setAudioChunks((prev) => [...prev, e.data]);
+    };
+    recorder.onstop = async () => {
+      setRecording(false);
+      const audioBlob = new Blob(audioChunks, { type: "audio/webm" });
+      const file = new File([audioBlob], "recording.webm", { type: "audio/webm" });
+      // Reuse your handleAudioUpload logic:
+      const fakeEvent = { target: { files: [file] } };
+      await handleAudioUpload(fakeEvent);
+    };
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorder) {
+      mediaRecorder.stop();
     }
   };
 
@@ -408,226 +479,167 @@ const ChatScreen = ({ currentUser, selectedUser, onBack, apiUrl }) => {
   if (!selectedUser) return null;
 
   return (
-    <div className="w-full h-full flex flex-col bg-gradient-to-br from-cyan-900 via-gray-900 to-gray-800 animate-fade-in shadow-2xl">
+    <div className="w-full h-full flex flex-col bg-gradient-to-br from-gray-900 to-black">
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-gray-800 bg-gradient-to-r from-cyan-700 to-cyan-500">
-        <div className="flex items-center">
+      <div className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-gray-800 to-gray-900 border-b border-gray-700">
+        <div className="flex items-center space-x-3">
           <button
-            className="mr-3 md:hidden text-white hover:text-cyan-200 transition"
             onClick={onBack}
+            className="md:hidden p-2 text-gray-300 hover:text-white transition-colors"
           >
-            <svg width="24" height="24" fill="none" viewBox="0 0 24 24">
-              <path d="M15 19l-7-7 7-7" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
+            ←
           </button>
-          <img
-            src={`https://ui-avatars.com/api/?name=${selectedUser.username}&background=22d3ee&color=fff`}
-            alt={selectedUser.username}
-            className="w-10 h-10 rounded-full border-2 border-cyan-400 shadow"
-          />
-          <div className="flex flex-col ml-3">
-            <span className="font-bold text-white text-base sm:text-lg">{selectedUser.username}</span>
-            <span className="text-xs text-cyan-100 opacity-75">
-              {!useSocketIO ? "HTTP Mode" : (socketStatus === 'connected' ? 'Connected' : 'Connecting...')}
-            </span>
-          </div>
-        </div>
-        <div className="flex items-center">
-          {/* Clear Chat Icon Button with label */}
-          <button
-            className="ml-2 flex items-center px-3 py-2 rounded-full bg-red-600 hover:bg-red-700 text-white"
-            onClick={() => setShowClearDialog(true)}
-            title="Clear Chat"
-            aria-label="Clear Chat"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" className="mr-1">
-              <path d="M3 6h18M9 6v12a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2V6m-6 0V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-            <span className="hidden sm:inline">Clear Chat</span>
-          </button>
-          <button
-            className="md:hidden p-2 rounded-full bg-cyan-600 hover:bg-cyan-700 text-white"
-            onClick={onBack}
-            aria-label="Show contacts"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
-              <circle cx="9" cy="7" r="4"></circle>
-              <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
-              <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
-            </svg>
-          </button>
-        </div>
-      </div>
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-3 sm:px-4 py-4 sm:py-6 space-y-3 bg-gradient-to-b from-transparent to-gray-900">
-        {renderSocketStatus()}
-        {error && (
-          <div className="bg-red-900 bg-opacity-50 border border-red-500 text-red-200 px-4 py-3 rounded mb-4 animate-fade-in">
-            {error}
-            <button
-              onClick={() => setError(null)}
-              className="ml-2 underline text-cyan-300 hover:text-cyan-200"
-            >
-              Dismiss
-            </button>
-          </div>
-        )}
-        {loading ? (
-          <div className="text-gray-400 text-center mt-10 animate-pulse-slow">
-            <div className="inline-block p-2 bg-cyan-800 bg-opacity-30 rounded-lg">
-              Loading messages...
+          <div className="flex items-center space-x-3">
+            <img
+              src={`https://ui-avatars.com/api/?name=${selectedUser.username}&background=random`}
+              alt={selectedUser.username}
+              className="w-10 h-10 rounded-full border-2 border-gray-600"/>
+            <div>
+              <h2 className="font-semibold text-white">{selectedUser.username}</h2>
+              <span className="text-xs text-gray-400">
+                {socketStatus === 'connected' ? 'Online' : 'Connecting...'}
+              </span>
             </div>
           </div>
-        ) : messages.length === 0 ? (
-          <div className="text-gray-400 text-center mt-10 animate-fade-in-slow">No previous messages</div>
-        ) : (
-          messages.map((msg, idx) => {
-            const isSender = msg.sender === (currentUser._id || currentUser.id);
-            return (
-              <div key={idx} className={`flex ${isSender ? "justify-end" : "justify-start"} animate-slide-up`}>
-                <div
-                  className={`px-4 sm:px-5 py-2 sm:py-3 rounded-2xl max-w-[75%] sm:max-w-xs shadow-md ${
-                    isSender
-                      ? `bg-gradient-to-br from-cyan-500 to-cyan-700 text-white rounded-br-none
-                         ${msg.pending ? 'opacity-50' : ''}
-                         ${msg.failed ? 'border-2 border-red-400' : ''}`
-                      : "bg-cyan-100 text-cyan-900 rounded-bl-none border border-cyan-300"
-                  }`}
-                >
-                  <div>
-                    {msg.type === "image" && msg.image && msg.image.id ? (
-                      <div className="relative group">
-                        <img
-                          src={`${apiUrl}/api/images/${msg.image.id}`}
-                          alt="shared"
-                          className="max-w-xs rounded-lg mb-1"
-                          style={{ maxHeight: 200 }}
-                          onError={e => { e.target.onerror = null; e.target.src = "https://via.placeholder.com/150?text=Image+not+found"; }}
-                        />
-                        <a
-                          href={`${apiUrl}/api/images/${msg.image.id}`}
-                          download={`chat-image-${msg.image.id}.jpg`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-cyan-700 hover:bg-cyan-800 text-white rounded-full p-1"
-                          title="Download image"
-                        >
-                          <svg width="20" height="20" fill="none" viewBox="0 0 24 24">
-                            <path d="M12 16v-8M8 12l4 4 4-4" stroke="#fff" strokeWidth="2" strokeLinecap="round"/>
-                            <path d="M20 20H4" stroke="#fff" strokeWidth="2" strokeLinecap="round"/>
-                          </svg>
-                        </a>
-                      </div>
-                    ) : (
-                      msg.text
-                    )}
+        </div>
+        
+        <button
+          onClick={() => setShowClearDialog(true)}
+          className="px-3 py-1.5 text-sm bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors"
+        >
+          Clear Chat
+        </button>
+      </div>
+
+      {/* Messages */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {messages.map((msg, idx) => {
+          const isSender = msg.sender === (currentUser._id || currentUser.id);
+          return (
+            <div
+              key={idx}
+              className={`flex ${isSender ? 'justify-end' : 'justify-start'}`}
+            >
+              <div
+                className={`max-w-[80%] md:max-w-[60%] rounded-lg p-3 ${
+                  isSender
+                    ? 'bg-blue-600 text-white ml-auto'
+                    : 'bg-gray-700 text-gray-100'
+                }`}
+              >
+                {msg.type === "image" && msg.image && msg.image.id ? (
+                  <div className="relative group">
+                    <img
+                      src={`${apiUrl}/api/images/${msg.image.id}`}
+                      alt="shared"
+                      className="rounded-lg w-full max-h-[300px] object-cover"
+                      onError={(e) => {
+                        e.target.onerror = null;
+                        e.target.src = "https://via.placeholder.com/300x200?text=Failed+to+load";
+                      }}
+                    />
+                    <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <a
+                        href={`${apiUrl}/api/images/${msg.image.id}`}
+                        download
+                        className="p-2 bg-black bg-opacity-50 rounded-full hover:bg-opacity-70"
+                      >
+                        ↓
+                      </a>
+                    </div>
                   </div>
-                  <div className="text-xs text-indigo-300 mt-1 text-right flex justify-end items-center">
-                    {msg.failed && <span className="text-red-300 mr-1">Failed</span>}
-                    {msg.pending && <span className="mr-1">Sending...</span>}
-                    {(msg.createdAt || msg.timestamp)
-                      ? new Date(msg.createdAt || msg.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-                      : ""}
-                    {isSender && !msg.failed && !msg.pending && (
-                      <span className="ml-2">
-                        {msg.seen
-                          ? <span title="Seen" style={{ color: "#22d3ee" }}>✓✓</span>
-                          : <span title="Delivered" style={{ color: "#bbb" }}>✓</span>
-                        }
-                      </span>
-                    )}
-                  </div>
+                ) : msg.type === "audio" && msg.audio && msg.audio.id ? (
+                  <audio controls className="w-full max-w-[300px]">
+                    <source src={`${apiUrl}/api/audios/${msg.audio.id}`} type="audio/mpeg" />
+                  </audio>
+                ) : (
+                  <p className="break-words">{msg.text}</p>
+                )}
+                <div className="text-xs mt-1 opacity-75 flex justify-end items-center space-x-1">
+                  <span>
+                    {new Date(msg.timestamp || msg.createdAt).toLocaleTimeString([], {
+                      hour: '2-digit',
+                      minute: '2-digit'
+                    })}
+                  </span>
+                  {isSender && (
+                    <span>{msg.seen ? '✓✓' : '✓'}</span>
+                  )}
                 </div>
               </div>
-            );
-          })
-        )}
+            </div>
+          );
+        })}
         <div ref={messagesEndRef} />
       </div>
-      {/* Input */}
-      <form
-        onSubmit={handleSend}
-        className="flex border-t border-gray-800 bg-gray-950 p-3 sm:p-4"
-      >
-        {/* Photo upload */}
-        <label className="mr-2 cursor-pointer flex items-center" title="Send Photo">
+
+      {/* Input Area */}
+      <div className="border-t border-gray-700 p-3 bg-gray-900">
+        <div className="flex items-center space-x-2">
+          <label className="p-2 hover:bg-gray-700 rounded-full cursor-pointer">
+            <input
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handlePhotoUpload}
+            />
+            📷
+          </label>
+          <label className="p-2 hover:bg-gray-700 rounded-full cursor-pointer">
+            <input
+              type="file"
+              accept="audio/*"
+              className="hidden"
+              onChange={handleAudioUpload}
+            />
+            🎵
+          </label>
+          <button
+            onClick={recording ? stopRecording : startRecording}
+            className={`p-2 rounded-full ${
+              recording ? 'bg-red-600' : 'hover:bg-gray-700'
+            }`}
+          >
+            🎤
+          </button>
           <input
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={handlePhotoUpload}
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="Type a message..."
+            className="flex-1 bg-gray-800 text-white rounded-full px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey && input.trim()) {
+                handleSend(e);
+              }
+            }}
           />
-          <span className="p-2 rounded-full bg-cyan-700 hover:bg-cyan-800 text-white">
-            <svg width="20" height="20" fill="none" viewBox="0 0 24 24">
-              <path d="M21 19V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2zM16 3v4M8 3v4M3 9h18" stroke="#fff" strokeWidth="2" strokeLinecap="round"/>
-            </svg>
-          </span>
-        </label>
-        {/* Audio upload */}
-        <label className="mr-2 cursor-pointer flex items-center" title="Send Audio">
-          <input
-            type="file"
-            accept="audio/*"
-            className="hidden"
-            onChange={handleAudioUpload}
-          />
-          <span className="p-2 rounded-full bg-green-700 hover:bg-green-800 text-white">
-            <svg width="20" height="20" fill="none" viewBox="0 0 24 24">
-              <path d="M12 3v10M8 7h8M5 21v-2a4 4 0 0 1 4-4h6a4 4 0 0 1 4 4v2" stroke="#fff" strokeWidth="2" strokeLinecap="round"/>
-            </svg>
-          </span>
-        </label>
-        {/* File upload */}
-        <label className="mr-2 cursor-pointer flex items-center" title="Send File">
-          <input
-            type="file"
-            className="hidden"
-            onChange={handleFileUpload}
-          />
-          <span className="p-2 rounded-full bg-yellow-600 hover:bg-yellow-700 text-white">
-            <svg width="20" height="20" fill="none" viewBox="0 0 24 24">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke="#fff" strokeWidth="2" strokeLinecap="round"/>
-              <path d="M14 2v6h6" stroke="#fff" strokeWidth="2" strokeLinecap="round"/>
-            </svg>
-          </span>
-        </label>
-        <input
-          type="text"
-          className="flex-1 px-3 py-2 rounded-full bg-gray-800 text-gray-200 focus:outline-none focus:ring-2 focus:ring-cyan-400 transition text-sm sm:text-base"
-          placeholder={loading ? "Loading chat..." : "Type a message..."}
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          disabled={loading || !conversationId}
-        />
-        <button
-          type="submit"
-          className={`ml-2 sm:ml-3 px-4 sm:px-6 py-2 rounded-full
-            ${loading || !conversationId || !input.trim()
-              ? "bg-gray-700 cursor-not-allowed"
-              : "bg-gradient-to-r from-cyan-500 to-cyan-700 hover:scale-105 hover:from-cyan-400 hover:to-cyan-600"
-            } text-white font-semibold shadow transition-all duration-200 text-sm sm:text-base`}
-          disabled={loading || !conversationId || !input.trim()}
-        >
-          Send
-        </button>
-      </form>
+          <button
+            onClick={handleSend}
+            disabled={!input.trim()}
+            className="px-4 py-2 bg-blue-600 text-white rounded-full hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Send
+          </button>
+        </div>
+      </div>
+
       {/* Clear Chat Dialog */}
       {showClearDialog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
-          <div className="bg-gray-900 rounded-xl shadow-xl p-6 w-80 max-w-full border border-cyan-700">
-            <h2 className="text-lg font-semibold text-white mb-3">Clear Chat</h2>
-            <p className="text-gray-200 mb-5">Are you sure you want to clear this chat? This action cannot be undone.</p>
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4">
+          <div className="bg-gray-800 rounded-lg p-6 max-w-sm w-full">
+            <h3 className="text-lg font-semibold text-white mb-4">Clear Chat</h3>
+            <p className="text-gray-300 mb-6">Are you sure you want to clear all messages? This cannot be undone.</p>
             <div className="flex justify-end space-x-3">
               <button
-                className="px-4 py-2 rounded bg-gray-700 text-gray-200 hover:bg-gray-600"
                 onClick={() => setShowClearDialog(false)}
+                className="px-4 py-2 text-gray-300 hover:text-white"
               >
                 Cancel
               </button>
               <button
-                className="px-4 py-2 rounded bg-red-600 text-white hover:bg-red-700"
                 onClick={handleClearChat}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
               >
                 Clear
               </button>
@@ -635,16 +647,6 @@ const ChatScreen = ({ currentUser, selectedUser, onBack, apiUrl }) => {
           </div>
         </div>
       )}
-      {/* Animations */}
-      <style>{`
-        .animate-fade-in { animation: fadeIn 0.7s; }
-        .animate-fade-in-slow { animation: fadeIn 1.2s; }
-        .animate-slide-up { animation: slideUp 0.4s; }
-        .animate-pulse-slow { animation: pulse 2s infinite; }
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-        @keyframes slideUp { from { opacity: 0; transform: translateY(30px);} to { opacity: 1; transform: translateY(0);} }
-        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
-      `}</style>
     </div>
   );
 };

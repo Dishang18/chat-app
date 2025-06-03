@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import axios from 'axios';
 import { useNavigate, Link } from 'react-router-dom';
+import ThreeScene from "./ThreeScene"; // Use the same animated background as Login
 
 const Signup = () => {
   const navigate = useNavigate();
@@ -12,17 +13,19 @@ const Signup = () => {
     preferredLanguage: 'en',
     phone: ''
   });
-  
+
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
-  
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData({
       ...formData,
       [name]: value
     });
-    
+
     if (errors[name]) {
       setErrors({
         ...errors,
@@ -30,60 +33,58 @@ const Signup = () => {
       });
     }
   };
-  
+
   const validateForm = () => {
     const newErrors = {};
-    
+
     if (!formData.username.trim()) {
       newErrors.username = 'Username is required';
     }
-    
+
     const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!formData.email.trim()) {
       newErrors.email = 'Email is required';
     } else if (!emailPattern.test(formData.email)) {
       newErrors.email = 'Please enter a valid email address';
     }
-    
+
     if (!formData.password) {
       newErrors.password = 'Password is required';
     } else if (formData.password.length < 6) {
       newErrors.password = 'Password must be at least 6 characters';
     }
-    
+
     if (formData.password !== formData.confirmPassword) {
       newErrors.confirmPassword = 'Passwords do not match';
     }
-    
+
     if (!formData.phone.trim()) {
       newErrors.phone = 'Phone number is required';
     }
-    
+
     if (!formData.preferredLanguage) {
       newErrors.preferredLanguage = 'Preferred language is required';
     }
-    
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
-  
+
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
+
     if (validateForm()) {
       setLoading(true);
       try {
         const { confirmPassword, ...signupData } = formData;
         const API_URL = import.meta.env.VITE_BACKEND_URL;
         const response = await axios.post(`${API_URL}/auth/signup`, signupData);
-        
+
         localStorage.setItem('token', response.data.token);
         localStorage.setItem('user', JSON.stringify(response.data.user));
-        
+
         navigate('/dashboard');
       } catch (error) {
-        console.error('❌ Signup Error:', error);
-        
         if (error.response) {
           if (error.response.data.message) {
             setErrors({ general: error.response.data.message });
@@ -102,11 +103,13 @@ const Signup = () => {
   };
 
   return (
-    <div className="min-h-screen relative bg-gradient-to-br from-blue-600 to-blue-900 flex items-center justify-center p-4">
-      {/* Background Pattern */}
-      <div className="absolute inset-0 bg-[url('https://images.pexels.com/photos/2882566/pexels-photo-2882566.jpeg')] bg-cover opacity-10"></div>
-      
-      <div className="w-full max-w-xl relative">
+    <div className="min-h-screen relative flex items-center justify-center p-4 overflow-hidden">
+      {/* Animated Three.js Background */}
+      <div className="absolute inset-0 z-0 pointer-events-none">
+        <ThreeScene />
+      </div>
+
+      <div className="w-full max-w-xl relative z-10">
         {/* Logo and Heading */}
         <div className="text-center mb-8">
           <div className="inline-block p-3 bg-white rounded-full shadow-xl mb-4">
@@ -116,8 +119,8 @@ const Signup = () => {
               className="w-20 h-20 rounded-full object-cover"
             />
           </div>
-          <h2 className="text-4xl font-bold text-white mb-2">ChatSphere</h2>
-          <p className="text-blue-100">Connect with the world, one message at a time</p>
+          <h2 className="text-4xl font-bold text-white mb-2">Create Account</h2>
+          <p className="text-blue-100">Join and start chatting instantly</p>
         </div>
 
         {/* Signup Form */}
@@ -195,9 +198,10 @@ const Signup = () => {
                 {errors.preferredLanguage && <p className="mt-1 text-sm text-red-600">{errors.preferredLanguage}</p>}
               </div>
 
+              {/* Password with show/hide */}
               <div className="relative">
                 <input
-                  type="password"
+                  type={showPassword ? "text" : "password"}
                   id="password"
                   name="password"
                   value={formData.password}
@@ -208,12 +212,25 @@ const Signup = () => {
                 <label htmlFor="password" className="absolute left-4 -top-2.5 bg-white px-1 text-sm text-gray-600 transition-all peer-placeholder-shown:text-base peer-placeholder-shown:text-gray-400 peer-placeholder-shown:top-3 peer-focus:-top-2.5 peer-focus:text-sm peer-focus:text-blue-600">
                   Password
                 </label>
+                <button
+                  type="button"
+                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400"
+                  tabIndex={-1}
+                  onClick={() => setShowPassword((v) => !v)}
+                >
+                  {showPassword ? (
+                    <svg width="22" height="22" fill="none" viewBox="0 0 24 24"><path d="M17.94 17.94A10.06 10.06 0 0 1 12 19c-5 0-9.27-3.11-11-7.5a11.62 11.62 0 0 1 4.06-5.16M9.53 9.53A3.5 3.5 0 0 1 12 8.5a3.5 3.5 0 0 1 3.5 3.5c0 .47-.09.92-.24 1.34M3 3l18 18" stroke="#888" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                  ) : (
+                    <svg width="22" height="22" fill="none" viewBox="0 0 24 24"><ellipse cx="12" cy="12" rx="10" ry="7" stroke="#888" strokeWidth="2"/><circle cx="12" cy="12" r="3" stroke="#888" strokeWidth="2"/></svg>
+                  )}
+                </button>
                 {errors.password && <p className="mt-1 text-sm text-red-600">{errors.password}</p>}
               </div>
 
+              {/* Confirm Password with show/hide */}
               <div className="relative">
                 <input
-                  type="password"
+                  type={showConfirmPassword ? "text" : "password"}
                   id="confirmPassword"
                   name="confirmPassword"
                   value={formData.confirmPassword}
@@ -224,6 +241,18 @@ const Signup = () => {
                 <label htmlFor="confirmPassword" className="absolute left-4 -top-2.5 bg-white px-1 text-sm text-gray-600 transition-all peer-placeholder-shown:text-base peer-placeholder-shown:text-gray-400 peer-placeholder-shown:top-3 peer-focus:-top-2.5 peer-focus:text-sm peer-focus:text-blue-600">
                   Confirm Password
                 </label>
+                <button
+                  type="button"
+                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400"
+                  tabIndex={-1}
+                  onClick={() => setShowConfirmPassword((v) => !v)}
+                >
+                  {showConfirmPassword ? (
+                    <svg width="22" height="22" fill="none" viewBox="0 0 24 24"><path d="M17.94 17.94A10.06 10.06 0 0 1 12 19c-5 0-9.27-3.11-11-7.5a11.62 11.62 0 0 1 4.06-5.16M9.53 9.53A3.5 3.5 0 0 1 12 8.5a3.5 3.5 0 0 1 3.5 3.5c0 .47-.09.92-.24 1.34M3 3l18 18" stroke="#888" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                  ) : (
+                    <svg width="22" height="22" fill="none" viewBox="0 0 24 24"><ellipse cx="12" cy="12" rx="10" ry="7" stroke="#888" strokeWidth="2"/><circle cx="12" cy="12" r="3" stroke="#888" strokeWidth="2"/></svg>
+                  )}
+                </button>
                 {errors.confirmPassword && <p className="mt-1 text-sm text-red-600">{errors.confirmPassword}</p>}
               </div>
             </div>
@@ -246,7 +275,7 @@ const Signup = () => {
               )}
             </button>
           </form>
-          
+
           <div className="mt-6 text-center">
             <p className="text-gray-600">
               Already have an account?{' '}
